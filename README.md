@@ -35,8 +35,7 @@ Resurrectorは、システムリソースの消費を最小限に抑えるため
 ```toml
 # Resurrector Configuration
 
-[[app]]
-name = "PowerToys Awake"
+["PowerToys Awake"]
 enabled = true
 command = "C:\\Program Files\\PowerToys\\modules\\Awake\\PowerToys.Awake.exe"
 args = ["--use-pt-config"]
@@ -46,8 +45,7 @@ healthy_timeout_sec = 60
 hide_window = true
 max_retries = 5
 
-[[app]]
-name = "My Svelte Dev Server"
+["My Svelte Dev Server"]
 enabled = false
 command = "npm.cmd"
 args = ["run", "dev"]

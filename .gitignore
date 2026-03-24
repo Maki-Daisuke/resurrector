@@ -1,0 +1,16 @@
+node_modules/
+
+# Build outputs
+build/
+*.exe
+
+# User-specific configuration
+# Only include config.example.toml in Git
+config.toml
+*config.toml
+!config.example.toml
+
+# IDE and OS temporary files
+.DS_Store
+.idea/
+.vscode/
