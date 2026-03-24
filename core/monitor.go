@@ -23,6 +23,7 @@ const (
 type AppInfo struct {
 	Config       App
 	State        AppState
+	PID          int
 	RestartCount int
 	stopChan     chan struct{}
 }
@@ -70,11 +71,14 @@ func (m *Manager) monitorLoop(app *AppInfo) {
 	app.RestartCount = 0
 
 	for {
-		m.setState(app, StateRunning)
-
+		app.PID = 0
 		startTime := time.Now()
-		_ = runProcess(app.Config, app.stopChan)
+		_ = runProcess(app.Config, app.stopChan, func(pid int) {
+			app.PID = pid
+			m.setState(app, StateRunning)
+		})
 		duration := time.Since(startTime)
+		app.PID = 0
 
 		// Process exited (or was stopped)
 
@@ -109,7 +113,7 @@ func (m *Manager) monitorLoop(app *AppInfo) {
 	}
 }
 
-func runProcess(cfg App, stopChan chan struct{}) error {
+func runProcess(cfg App, stopChan chan struct{}, onStart func(int)) error {
 	// Build Command Line
 	args := []string{cfg.Command}
 	args = append(args, cfg.Args...)
@@ -192,6 +196,8 @@ func runProcess(cfg App, stopChan chan struct{}) error {
 		windows.TerminateProcess(pi.Process, 1)
 		return fmt.Errorf("AssignProcessToJobObject: %w", err)
 	}
+
+	onStart(int(pi.ProcessId))
 
 	// Resume thread
 	_, err = windows.ResumeThread(pi.Thread)

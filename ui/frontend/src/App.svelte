@@ -1,22 +1,27 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { EventsOn } from "../wailsjs/runtime/runtime";
+  import { Table, TableBody, TableBodyCell, TableBodyRow, TableHead, TableHeadCell, Badge } from "flowbite-svelte";
 
   type AppStateInfo = {
     id: number;
     name: string;
+    pid: number;
     state: string;
+    enabled: boolean;
+    command: string;
     restartCount: number;
   };
 
   let apps: Record<number, AppStateInfo> = {};
+  let sortKey: keyof AppStateInfo = 'id';
+  let sortAsc = true;
 
   onMount(() => {
     EventsOn("app_state_update", (dataStr: string) => {
       try {
         const data: AppStateInfo = JSON.parse(dataStr);
         apps[data.id] = data;
-        // Trigger Svelte reactivity
         apps = { ...apps };
       } catch (e) {
         console.error("Failed to parse event:", e);
@@ -24,127 +29,82 @@
     });
   });
 
-  $: appList = Object.values(apps).sort((a, b) => a.id - b.id);
+  function handleSort(key: keyof AppStateInfo) {
+    if (sortKey === key) {
+      sortAsc = !sortAsc;
+    } else {
+      sortKey = key;
+      sortAsc = true;
+    }
+  }
+
+  $: appList = Object.values(apps).sort((a, b) => {
+    let valA = a[sortKey];
+    let valB = b[sortKey];
+    if (valA < valB) return sortAsc ? -1 : 1;
+    if (valA > valB) return sortAsc ? 1 : -1;
+    return 0;
+  });
+
+  function getStateColor(state: string) {
+    switch (state.toLowerCase()) {
+      case 'running': return 'green';
+      case 'stopped': return 'dark';
+      case 'retrying': return 'yellow';
+      case 'failed': return 'red';
+      default: return 'dark';
+    }
+  }
 </script>
 
-<main class="container">
-  <h1>Resurrector</h1>
-  <p class="subtitle">ストイックなプロセス監視ツール</p>
-
-  <div class="app-list">
-    {#each appList as app}
-      <div class="app-card">
-        <div class="info">
-          <h2>{app.name}</h2>
-          <div class="badges">
-            <span class="badge state-{app.state.toLowerCase()}">{app.state}</span>
-            {#if app.restartCount > 0}
-              <span class="badge retry">Retries: {app.restartCount}</span>
-            {/if}
-          </div>
-        </div>
-      </div>
-    {/each}
-    {#if appList.length === 0}
-      <div class="empty-state">
-        <p>連携待機中...</p>
-        <div class="pulse"></div>
-      </div>
-    {/if}
+<main class="p-6 h-screen w-full flex flex-col items-center">
+  <div class="w-full max-w-6xl shadow-2xl sm:rounded-lg mt-8">
+    <Table hoverable={true} class="overflow-hidden sm:rounded-lg">
+      <TableHead class="bg-gray-100 dark:bg-gray-800">
+        <TableHeadCell on:click={() => handleSort('name')} class="cursor-pointer select-none whitespace-nowrap">
+          App Name {sortKey === 'name' ? (sortAsc ? '▲' : '▼') : ''}
+        </TableHeadCell>
+        <TableHeadCell on:click={() => handleSort('pid')} class="cursor-pointer select-none">
+          PID {sortKey === 'pid' ? (sortAsc ? '▲' : '▼') : ''}
+        </TableHeadCell>
+        <TableHeadCell on:click={() => handleSort('state')} class="cursor-pointer select-none">
+          State {sortKey === 'state' ? (sortAsc ? '▲' : '▼') : ''}
+        </TableHeadCell>
+        <TableHeadCell on:click={() => handleSort('enabled')} class="cursor-pointer select-none">
+          Enabled/Disabled {sortKey === 'enabled' ? (sortAsc ? '▲' : '▼') : ''}
+        </TableHeadCell>
+        <TableHeadCell on:click={() => handleSort('command')} class="cursor-pointer select-none">
+          Command {sortKey === 'command' ? (sortAsc ? '▲' : '▼') : ''}
+        </TableHeadCell>
+      </TableHead>
+      <TableBody class="divide-y">
+        {#each appList as app}
+          <TableBodyRow>
+            <TableBodyCell class="font-medium text-gray-900 dark:text-white">
+              {app.name}
+            </TableBodyCell>
+            <TableBodyCell class="font-mono">
+              {app.pid > 0 ? app.pid : '-'}
+            </TableBodyCell>
+            <TableBodyCell>
+              <Badge color={getStateColor(app.state)}>{app.state}</Badge>
+            </TableBodyCell>
+            <TableBodyCell>
+              <Badge color={app.enabled ? 'blue' : 'dark'}>{app.enabled ? 'Enabled' : 'Disabled'}</Badge>
+            </TableBodyCell>
+            <TableBodyCell class="font-mono text-sm max-w-xs truncate" title={app.command}>
+              {app.command}
+            </TableBodyCell>
+          </TableBodyRow>
+        {/each}
+        {#if appList.length === 0}
+          <TableBodyRow>
+            <TableBodyCell colspan="5" class="text-center py-12 text-gray-500">
+              Waiting for process connection...
+            </TableBodyCell>
+          </TableBodyRow>
+        {/if}
+      </TableBody>
+    </Table>
   </div>
 </main>
-
-<style>
-  :global(body) {
-    background-color: #1b2636;
-    color: #e2e8f0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    margin: 0;
-    padding: 0;
-  }
-  .container {
-    max-width: 800px;
-    margin: 0 auto;
-    padding: 2rem;
-  }
-  h1 {
-    margin-bottom: 0.2rem;
-    font-size: 2.5rem;
-    color: #f8fafc;
-    text-shadow: 0 0 10px rgba(148, 163, 184, 0.3);
-  }
-  .subtitle {
-    color: #94a3b8;
-    margin-bottom: 2rem;
-  }
-  .app-list {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-  .app-card {
-    background: #1e293b;
-    border: 1px solid #334155;
-    border-radius: 8px;
-    padding: 1.5rem;
-    display: flex;
-    justify-content: flex-start;
-    gap: 1.5rem;
-    align-items: center;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    transition: transform 0.2s, box-shadow 0.2s;
-  }
-  .app-logo {
-    width: 48px;
-    height: 48px;
-    object-fit: contain;
-    border-radius: 8px;
-    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
-  }
-  .app-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);
-  }
-  .app-card h2 {
-    margin: 0 0 0.5rem 0;
-    font-size: 1.3rem;
-    color: #f1f5f9;
-  }
-  .badges {
-    display: flex;
-    gap: 0.5rem;
-  }
-  .badge {
-    padding: 0.25rem 0.6rem;
-    border-radius: 9999px;
-    font-size: 0.8rem;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-  }
-  .state-running { background: #dcfce7; color: #166534; box-shadow: 0 0 8px rgba(22, 101, 52, 0.3); }
-  .state-stopped { background: #f1f5f9; color: #475569; }
-  .state-retrying { background: #fef08a; color: #854d0e; }
-  .state-failed { background: #fee2e2; color: #991b1b; }
-  .badge.retry { background: #ffedd5; color: #c2410c; }
-  
-  .empty-state {
-    text-align: center;
-    padding: 3rem;
-    background: #1e293b;
-    border: 1px dashed #475569;
-    border-radius: 8px;
-    color: #94a3b8;
-  }
-  .pulse {
-    width: 12px;
-    height: 12px;
-    background-color: #3b82f6;
-    border-radius: 50%;
-    margin: 1.5rem auto 0;
-    animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
-  }
-  @keyframes ping {
-    75%, 100% { transform: scale(2.5); opacity: 0; }
-  }
-</style>

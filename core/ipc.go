@@ -84,7 +84,10 @@ func (ui *UIProcess) SendState(id int, app *AppInfo) {
 	msg := map[string]interface{}{
 		"id":           id,
 		"name":         app.Config.Name,
+		"pid":          app.PID,
 		"state":        string(app.State),
+		"enabled":      app.Config.Enabled,
+		"command":      app.Config.Command,
 		"restartCount": app.RestartCount,
 	}
 	b, _ := json.Marshal(msg)
