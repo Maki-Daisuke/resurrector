@@ -4,16 +4,38 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
+	"unsafe"
+
+	"golang.org/x/sys/windows"
+
+	"resurrector/util"
 )
 
 //go:embed icon.ico
 var iconData []byte
 
+var (
+	user32         = windows.NewLazySystemDLL("user32.dll")
+	procMessageBox = user32.NewProc("MessageBoxW")
+)
+
+// showErrorDialog displays a native Windows error dialog with the given title and message.
+func showErrorDialog(title, message string) {
+	titlePtr, _ := windows.UTF16PtrFromString(title)
+	messagePtr, _ := windows.UTF16PtrFromString(message)
+	const mbOK = 0x00000000
+	const mbIconError = 0x00000010
+	procMessageBox.Call(0, uintptr(unsafe.Pointer(messagePtr)), uintptr(unsafe.Pointer(titlePtr)), mbOK|mbIconError)
+}
+
 func main() {
 	// Parse config
-	cfg, err := LoadConfig("config.toml")
+	cfg, err := util.LoadConfig("config.toml")
 	if err != nil {
-		fmt.Printf("Failed to load config.toml: %v\n", err)
+		showErrorDialog(
+			"Resurrector - Configuration Error",
+			fmt.Sprintf("Failed to load config.toml:\n\n%v", err),
+		)
 		os.Exit(1)
 	}
 

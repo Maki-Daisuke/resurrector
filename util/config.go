@@ -1,4 +1,4 @@
-package main
+package util
 
 import (
 	"fmt"
@@ -7,10 +7,12 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
+// Config holds the entire application configuration, keyed by app name.
 type Config struct {
 	Apps map[string]*App
 }
 
+// App represents the configuration for a single managed application.
 type App struct {
 	Name              string   `toml:"-"`
 	Enabled           bool     `toml:"enabled"`
@@ -32,6 +34,9 @@ func LoadConfig(path string) (*Config, error) {
 
 	var raw map[string]*App
 	if err := toml.Unmarshal(b, &raw); err != nil {
+		if de, ok := err.(*toml.DecodeError); ok {
+			return nil, fmt.Errorf("parsing TOML config:\n%s", de.String())
+		}
 		return nil, fmt.Errorf("parsing TOML config: %w", err)
 	}
 

@@ -10,6 +10,8 @@ import (
 
 	"github.com/shirou/gopsutil/v4/process"
 	"golang.org/x/sys/windows"
+
+	"resurrector/util"
 )
 
 type AppState string
@@ -23,7 +25,7 @@ const (
 
 // AppInfo includes the static config and runtime state.
 type AppInfo struct {
-	Config       App
+	Config       util.App
 	State        AppState
 	PID          int
 	RestartCount int
@@ -36,7 +38,8 @@ type Manager struct {
 	StateChan chan *AppInfo // Used to notify UI of state changes
 }
 
-func NewManager(cfg *Config, stateChan chan *AppInfo) *Manager {
+
+func NewManager(cfg *util.Config, stateChan chan *AppInfo) *Manager {
 	m := &Manager{
 		StateChan: stateChan,
 	}
@@ -146,7 +149,7 @@ func (m *Manager) monitorLoop(app *AppInfo) {
 
 // startProcess creates a new detached process and returns its PID.
 // The process is NOT tied to a Job Object, so it survives when resurrector exits.
-func startProcess(cfg App) (int, error) {
+func startProcess(cfg util.App) (int, error) {
 	// Build Command Line
 	args := []string{cfg.Command}
 	args = append(args, cfg.Args...)
@@ -208,7 +211,7 @@ func startProcess(cfg App) (int, error) {
 	return int(pi.ProcessId), nil
 }
 
-func findExistingProcess(cfg App) (int, error) {
+func findExistingProcess(cfg util.App) (int, error) {
 	procs, err := process.Processes()
 	if err != nil {
 		return 0, err
