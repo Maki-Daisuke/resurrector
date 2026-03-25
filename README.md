@@ -1,45 +1,45 @@
 # Resurrector
 
-Resurrector（リザレクター）は、Windows向けのストイックで極めて軽量なプロセス死活監視・自動再起動ツールです。
+Resurrector is a lightweight process monitoring and auto-restart tool for Windows.
 
-バックグラウンドで静かに常駐し、登録されたアプリケーション（プロセス）が予期せず終了した際に、設定された条件に従って自動的に蘇生（再起動）させます。
+It is designed to ensure that critical applications remain running within the **Interactive Session** (the desktop session where you are logged in), effortlessly resurrecting (restarting) them if they crash or terminate unexpectedly.
 
-## ✨ Features
+## Features
 
-- **ゼロ・ポーリング監視**: Windows API (`WaitForSingleObject`) を利用したイベント駆動型の監視。CPUリソースを無駄に消費しません。
-- **極小の常駐メモリ**: 常駐するコアプロセスは純粋なGo言語のみで記述されており、数MBのメモリしか消費しません。
-- **オンデマンドのモダンUI**: 設定やステータス確認のUIは、タスクトレイから呼び出された時のみ起動します（Wails + Svelte）。不要な時はプロセスごと終了し、メモリを完全に解放します。
-- **堅牢なプロセス間通信 (IPC)**: コアプロセスとUIプロセス間の通信は「標準入出力 (Stdio)」を通じて行われ、ネットワークポートを開かないためセキュアです。
-- **ヒューマンリーダブルな設定**: 設定ファイルには人間にも機械にも読み書きしやすい `TOML` フォーマットを採用しています。
+- **Zero-Polling Monitoring**: Event-driven monitoring using Windows API (`WaitForSingleObject`). It does not waste CPU resources.
+- **Minimal Footprint**: The resident core process is written in pure Go and consumes only a few megabytes of memory.
+- **On-Demand Modern UI**: The configuration and status UI (Wails + Svelte) only launches when called from the system tray. It exits and frees all memory when not needed.
+- **Robust Inter-Process Communication (IPC)**: Communication between the core and UI processes is handled via standard I/O (stdio), making it secure by not opening any network ports.
+- **Human-Readable Configuration**: Uses the `TOML` format for easy reading and writing.
 
 ## Architecture
 
-Resurrectorは、システムリソースの消費を最小限に抑えるため、**「常駐コアプロセス」**と**「使い捨てのUIプロセス」**の2つの独立したバイナリで構成されています。
+To minimize system resource consumption, Resurrector consists of two independent binaries: a **"resident core process"** and a **"disposable UI process."**
 
 ### 1. Core Process (`resurrector.exe`)
 
-- **役割**: タスクトレイへの常駐、TOMLファイルの読み込み、子プロセスの起動・死活監視 (`WaitForSingleObject`)。
-- **技術**: Go (Pure), `energye/systray`, `golang.org/x/sys/windows`
-- **特徴**: UIを持たず、極めて軽量に動作し続けます。タスクトレイから「設定」がクリックされると、UIプロセスを子プロセスとして起動します。
+- **Role**: Steady presence in the system tray, reading the TOML file, and starting/monitoring child processes.
+- **Technology**: Go (Pure), `energye/systray`, `golang.org/x/sys/windows`
+- **Features**: Does not have a UI; it continues to operate extremely lightly. When "Settings" is clicked from the system tray, it launches the UI process as a child process.
 
 ### 2. UI Process (`resurrector-ui.exe`)
 
-- **役割**: ユーザー向けの設定画面、監視ステータスのリアルタイム表示。
-- **技術**: Go + Wails + Svelte (TypeScript)
-- **特徴**: Wailsのカスタムロガーを用いてフレームワークのログを `STDERR` に逃がし、`STDOUT` を純粋なJSONメッセージング（IPC通信）専用のパイプとして利用します。ウィンドウを閉じるとプロセスは終了します。
+- **Role**: Configuration screen for the user, real-time display of monitoring status.
+- **Technology**: Go + Wails + Svelte (TypeScript)
+- **Features**: Uses a custom Wails logger to utilize `STDOUT` as a dedicated pipe for pure JSON messaging (IPC). The process terminates when the window is closed.
 
 ## Configuration (`config.toml`)
 
-監視対象のアプリケーションは、実行ファイルと同じディレクトリに配置される `config.toml` で管理されます。
+Applications to be monitored are managed via a `config.toml` file located in the same directory as the executable.
 
 ```toml
 # Resurrector Configuration
 
 ["PowerToys Awake"]
 enabled = true
-command = "C:\\Program Files\\PowerToys\\modules\\Awake\\PowerToys.Awake.exe"
+command = 'C:\Program Files\PowerToys\modules\Awake\PowerToys.Awake.exe'
 args = ["--use-pt-config"]
-cwd = "C:\\Program Files\\PowerToys\\modules\\Awake"
+cwd = 'C:\Program Files\PowerToys\modules\Awake'
 restart_delay_sec = 3
 healthy_timeout_sec = 60
 hide_window = true
@@ -47,47 +47,75 @@ max_retries = 5
 
 ["My Svelte Dev Server"]
 enabled = false
-command = "npm.cmd"
+command = 'npm.cmd'
 args = ["run", "dev"]
-cwd = "C:\\Users\\user\\projects\\my-svelte-app"
+cwd = 'C:\Users\user\projects\my-svelte-app'
 restart_delay_sec = 5
 healthy_timeout_sec = 60
 hide_window = false
 max_retries = 3
-````
+```
 
-### 項目定義
+### Item Definitions
 
-- `name` (String): UI上に表示される識別用の名前。
-- `enabled` (Boolean): `true` の場合、起動時およびUIからの要求時に監視を開始します。
-- `command` (String): 実行するコマンドまたは実行ファイルのフルパス。
-- `args` (Array of Strings): コマンドに渡す引数のリスト。
-- `cwd` (String): コマンドを実行する際の作業ディレクトリ（カレントディレクトリ）。
-- `restart_delay_sec` (Integer): プロセス終了を検知してから、再起動を試みるまでの待機時間（秒）。
-- `healthy_timeout_sec` (Integer): プロセスが再起動後、この秒数以上安定して稼働し続けた場合にリトライ回数を0にリセットします。
-- `hide_window` (Boolean): `true` の場合、プロセスをバックグラウンド（ウィンドウ非表示）で起動します。
-- `max_retries` (Integer): 短期間に連続してクラッシュした場合に、監視を停止するまでの最大再起動回数（クラッシュループ対策）。
+- `name` (String): The identifier name displayed on the UI.
+- `enabled` (Boolean): If `true`, starts monitoring on startup or UI request.
+- `command` (String): The full path to the command or executable.
+- `args` (Array of Strings): List of arguments to pass to the command.
+- `cwd` (String): The working directory (current directory) for running the command.
+- `restart_delay_sec` (Integer): The wait time (seconds) before attempting a restart after detecting a process termination.
+- `healthy_timeout_sec` (Integer): If the process continues to run stably for this many seconds after a restart, the retry count is reset to 0.
+- `hide_window` (Boolean): If `true`, launches the process in the background (hidden window).
+- `max_retries` (Integer): The maximum number of restarts before stopping monitoring due to persistent crashes (crash loop prevention).
+
+## Build
+
+To build the entire project, run the following commands in the root directory:
+
+```bash
+npm install
+npm run build
+```
+
+The following files will be generated in the `build/` directory:
+
+- `resurrector.exe` (Core Process)
+- `resurrector-ui.exe` (UI Process)
+- `config.toml` (Configuration file - copied from `config.example.toml`)
+
+## Usage
+
+1. Run `build/resurrector.exe`.
+2. An icon will appear in the system tray.
+3. Right-click the icon and select "Settings" to launch the UI for configuring monitored applications.
 
 ## Development
 
-### 前提条件
+### Prerequisites
 
 - Go 1.26+
-- Node.js 18+ (Svelte用)
+- Node.js 22+ (LTS recommended)
 - Wails CLI (`go install github.com/wailsapp/wails/v2/cmd/wails@latest`)
 
-### ディレクトリ構成案
+### Directory Structure
 
 ```text
 .
-├── core/                   # 常駐コアプロセス (Pure Go)
-│   ├── main.go
-│   ├── monitor/            # Windows API 監視ロジック
-│   └── tray/               # タスクトレイ制御
-├── ui/                     # UIプロセス (Wails)
-│   ├── main.go             # Wailsのエントリポイント (STDIO通信ロジック)
-│   └── frontend/           # Svelteアプリケーション
-└── config.toml             # 設定ファイル
+├── build/                  # Build artifacts (generated binaries, etc.)
+├── core/                   # Resident core process (Pure Go)
+│   ├── main.go             # Entry point
+│   ├── monitor.go          # Process monitoring logic
+│   ├── tray.go             # System tray control
+│   └── ipc.go              # UI process communication control
+├── ui/                     # UI process (Wails)
+│   ├── main.go             # Wails entry point
+│   ├── app.go              # Bridge between Wails and frontend
+│   └── frontend/           # Svelte application (UI screens)
+├── util/                   # Common utilities
+│   ├── config.go           # TOML configuration reading/writing
+│   └── stdioconn.go        # IPC via standard I/O
+├── config.example.toml     # Sample configuration file
+└── package.json            # Build scripts (npm)
 ```
 
 ## License
