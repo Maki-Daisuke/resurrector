@@ -6,7 +6,7 @@
     "prebuild": "shx mkdir -p build",
     "build:icons": "shx cp logo.png ui/build/appicon.png && shx touch ui/build/appicon.png && shx rm -f ui/build/windows/icon.ico ui/build/windows/icon.syso ui/build/windows/rsrc_windows_amd64.syso && cd core && go run github.com/tc-hib/go-winres@latest simply --icon ../logo.png",
     "build:core-tray-icon": "shx cp ui/build/windows/icon.ico core/icon.ico",
-    "build:core": "npm run build:core-tray-icon && cd core && go build -o ../build/resurrector.exe",
+    "build:core": "npm run build:core-tray-icon && cd core && go build -ldflags=\"-H windowsgui\" -o ../build/resurrector.exe",
     "build:ui": "cd ui && wails build && cd .. && shx cp ui/build/bin/ui.exe build/resurrector-ui.exe",
     "build:config": "shx cp config.example.toml build/config.toml",
     "build": "npm run prebuild && npm run build:icons && npm run build:ui && npm run build:core && npm run build:config",

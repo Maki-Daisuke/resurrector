@@ -169,6 +169,8 @@ func runProcess(cfg App, stopChan chan struct{}, onStart func(int)) error {
 	creationFlags := uint32(windows.CREATE_SUSPENDED)
 	if cfg.HideWindow {
 		creationFlags |= windows.CREATE_NO_WINDOW
+	} else {
+		creationFlags |= windows.CREATE_NEW_CONSOLE
 	}
 
 	err = windows.CreateProcess(
