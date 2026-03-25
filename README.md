@@ -9,24 +9,9 @@ It is designed to ensure that critical applications remain running within the **
 - **Zero-Polling Monitoring**: Event-driven monitoring using Windows API (`WaitForSingleObject`). It does not waste CPU resources.
 - **Minimal Footprint**: The resident core process is written in pure Go and consumes only a few megabytes of memory.
 - **On-Demand Modern UI**: The configuration and status UI (Wails + Svelte) only launches when called from the system tray. It exits and frees all memory when not needed.
-- **Robust Inter-Process Communication (IPC)**: Communication between the core and UI processes is handled via standard I/O (stdio), making it secure by not opening any network ports.
 - **Human-Readable Configuration**: Uses the `TOML` format for easy reading and writing.
 
-## Architecture
-
-To minimize system resource consumption, Resurrector consists of two independent binaries: a **"resident core process"** and a **"disposable UI process."**
-
-### 1. Core Process (`resurrector.exe`)
-
-- **Role**: Steady presence in the system tray, reading the TOML file, and starting/monitoring child processes.
-- **Technology**: Go (Pure), `energye/systray`, `golang.org/x/sys/windows`
-- **Features**: Does not have a UI; it continues to operate extremely lightly. When "Settings" is clicked from the system tray, it launches the UI process as a child process.
-
-### 2. UI Process (`resurrector-ui.exe`)
-
-- **Role**: Configuration screen for the user, real-time display of monitoring status.
-- **Technology**: Go + Wails + Svelte (TypeScript)
-- **Features**: Uses a custom Wails logger to utilize `STDOUT` as a dedicated pipe for pure JSON messaging (IPC). The process terminates when the window is closed.
+For more technical details about the architecture and IPC, please see [Design & Architecture](./doc/design.md).
 
 ## Configuration (`config.toml`)
 
@@ -96,27 +81,6 @@ The following files will be generated in the `build/` directory:
 - Go 1.26+
 - Node.js 22+ (LTS recommended)
 - Wails CLI (`go install github.com/wailsapp/wails/v2/cmd/wails@latest`)
-
-### Directory Structure
-
-```text
-.
-├── build/                  # Build artifacts (generated binaries, etc.)
-├── core/                   # Resident core process (Pure Go)
-│   ├── main.go             # Entry point
-│   ├── monitor.go          # Process monitoring logic
-│   ├── tray.go             # System tray control
-│   └── ipc.go              # UI process communication control
-├── ui/                     # UI process (Wails)
-│   ├── main.go             # Wails entry point
-│   ├── app.go              # Bridge between Wails and frontend
-│   └── frontend/           # Svelte application (UI screens)
-├── util/                   # Common utilities
-│   ├── config.go           # TOML configuration reading/writing
-│   └── stdioconn.go        # IPC via standard I/O
-├── config.example.toml     # Sample configuration file
-└── package.json            # Build scripts (npm)
-```
 
 ## License
 
