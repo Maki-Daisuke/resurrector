@@ -2,11 +2,13 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 	"unsafe"
 
+	"github.com/shirou/gopsutil/v4/process"
 	"golang.org/x/sys/windows"
 )
 
@@ -73,10 +75,39 @@ func (m *Manager) monitorLoop(app *AppInfo) {
 	for {
 		app.PID = 0
 		startTime := time.Now()
-		_ = runProcess(app.Config, app.stopChan, func(pid int) {
+
+		// Search for an existing process
+		pid, err := findExistingProcess(app.Config)
+		if err == nil && pid > 0 {
+			// Found — attach and monitor
 			app.PID = pid
-			m.setState(app, StateRunning)
-		})
+			_ = monitorExistingProcess(pid, app.stopChan, func(p int) {
+				m.setState(app, StateRunning)
+			})
+		} else {
+			// Not found — start a new process and attach
+			newPID, startErr := startProcess(app.Config)
+			if startErr != nil {
+				app.RestartCount++
+				if app.Config.MaxRetries > 0 && app.RestartCount > app.Config.MaxRetries {
+					m.setState(app, StateFailed)
+					return
+				}
+				m.setState(app, StateRetrying)
+				select {
+				case <-time.After(time.Duration(app.Config.RestartDelaySec) * time.Second):
+					continue
+				case <-app.stopChan:
+					m.setState(app, StateStopped)
+					return
+				}
+			}
+			app.PID = newPID
+			_ = monitorExistingProcess(newPID, app.stopChan, func(p int) {
+				m.setState(app, StateRunning)
+			})
+		}
+
 		duration := time.Since(startTime)
 		app.PID = 0
 
@@ -113,7 +144,9 @@ func (m *Manager) monitorLoop(app *AppInfo) {
 	}
 }
 
-func runProcess(cfg App, stopChan chan struct{}, onStart func(int)) error {
+// startProcess creates a new detached process and returns its PID.
+// The process is NOT tied to a Job Object, so it survives when resurrector exits.
+func startProcess(cfg App) (int, error) {
 	// Build Command Line
 	args := []string{cfg.Command}
 	args = append(args, cfg.Args...)
@@ -125,36 +158,15 @@ func runProcess(cfg App, stopChan chan struct{}, onStart func(int)) error {
 	cmdline := strings.Join(escapedArgs, " ")
 	cmdlinePtr, err := windows.UTF16PtrFromString(cmdline)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	var dirPtr *uint16
 	if cfg.CWD != "" {
 		dirPtr, err = windows.UTF16PtrFromString(cfg.CWD)
 		if err != nil {
-			return err
+			return 0, err
 		}
-	}
-
-	// Create Job Object
-	job, err := windows.CreateJobObject(nil, nil)
-	if err != nil {
-		return fmt.Errorf("CreateJobObject: %w", err)
-	}
-	defer windows.CloseHandle(job)
-
-	// Set JOBOBJECT_EXTENDED_LIMIT_INFORMATION
-	var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
-	info.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-
-	_, err = windows.SetInformationJobObject(
-		job,
-		windows.JobObjectExtendedLimitInformation,
-		uintptr(unsafe.Pointer(&info)),
-		uint32(unsafe.Sizeof(info)),
-	)
-	if err != nil {
-		return fmt.Errorf("SetInformationJobObject: %w", err)
 	}
 
 	var si windows.StartupInfo
@@ -166,11 +178,11 @@ func runProcess(cfg App, stopChan chan struct{}, onStart func(int)) error {
 
 	var pi windows.ProcessInformation
 
-	creationFlags := uint32(windows.CREATE_SUSPENDED)
+	var creationFlags uint32
 	if cfg.HideWindow {
-		creationFlags |= windows.CREATE_NO_WINDOW
+		creationFlags = windows.CREATE_NO_WINDOW
 	} else {
-		creationFlags |= windows.CREATE_NEW_CONSOLE
+		creationFlags = windows.CREATE_NEW_CONSOLE
 	}
 
 	err = windows.CreateProcess(
@@ -186,39 +198,96 @@ func runProcess(cfg App, stopChan chan struct{}, onStart func(int)) error {
 		&pi,
 	)
 	if err != nil {
-		return fmt.Errorf("CreateProcess: %w", err)
+		return 0, fmt.Errorf("CreateProcess: %w", err)
 	}
 
-	defer windows.CloseHandle(pi.Process)
-	defer windows.CloseHandle(pi.Thread)
+	// ハンドルを即座に閉じてデタッチする
+	windows.CloseHandle(pi.Thread)
+	windows.CloseHandle(pi.Process)
 
-	// Assign to Job
-	err = windows.AssignProcessToJobObject(job, pi.Process)
+	return int(pi.ProcessId), nil
+}
+
+func findExistingProcess(cfg App) (int, error) {
+	procs, err := process.Processes()
 	if err != nil {
-		windows.TerminateProcess(pi.Process, 1)
-		return fmt.Errorf("AssignProcessToJobObject: %w", err)
+		return 0, err
 	}
 
-	onStart(int(pi.ProcessId))
+	args := []string{cfg.Command}
+	args = append(args, cfg.Args...)
 
-	// Resume thread
-	_, err = windows.ResumeThread(pi.Thread)
+	var escapedArgs []string
+	for _, arg := range args {
+		escapedArgs = append(escapedArgs, windows.EscapeArg(arg))
+	}
+	expectedCmdline := strings.Join(escapedArgs, " ")
+
+	for _, p := range procs {
+		cmdline, err := p.Cmdline()
+		if err != nil {
+			continue
+		}
+
+		if cmdline == expectedCmdline {
+			return int(p.Pid), nil
+		}
+
+		slice, err := p.CmdlineSlice()
+		if err != nil {
+			continue
+		}
+
+		if len(slice) == len(args) {
+			match := true
+			base1 := filepath.Base(slice[0])
+			base2 := filepath.Base(args[0])
+			if !strings.EqualFold(base1, base2) {
+				match = false
+			} else {
+				for i := 1; i < len(args); i++ {
+					if slice[i] != args[i] {
+						match = false
+						break
+					}
+				}
+			}
+			if match {
+				return int(p.Pid), nil
+			}
+		}
+	}
+	return 0, nil
+}
+
+// monitorExistingProcess monitors an already-running process by its PID.
+// When stop is requested, it just stops monitoring without killing the process.
+func monitorExistingProcess(pid int, stopChan chan struct{}, onStart func(int)) error {
+	access := uint32(windows.SYNCHRONIZE | windows.PROCESS_QUERY_LIMITED_INFORMATION)
+	handle, err := windows.OpenProcess(access, false, uint32(pid))
 	if err != nil {
-		windows.TerminateProcess(pi.Process, 1)
-		return fmt.Errorf("ResumeThread: %w", err)
+		return fmt.Errorf("OpenProcess: %w", err)
 	}
+	defer windows.CloseHandle(handle)
 
-	// Monitor loop
-	// Create an event for stopChan so we can wait on multiple objects
+	onStart(pid)
+
 	stopEvent, _ := windows.CreateEvent(nil, 0, 0, nil)
 	defer windows.CloseHandle(stopEvent)
 
+	done := make(chan struct{})
+	defer close(done)
+
 	go func() {
-		<-stopChan
-		windows.SetEvent(stopEvent)
+		select {
+		case <-stopChan:
+			windows.SetEvent(stopEvent)
+		case <-done:
+			// Process exited naturally — clean up goroutine
+		}
 	}()
 
-	handles := []windows.Handle{pi.Process, stopEvent}
+	handles := []windows.Handle{handle, stopEvent}
 
 	for {
 		event, err := windows.WaitForMultipleObjects(handles, false, windows.INFINITE)
@@ -229,8 +298,7 @@ func runProcess(cfg App, stopChan chan struct{}, onStart func(int)) error {
 		switch event {
 		case windows.WAIT_OBJECT_0: // Process exited
 			return nil
-		case windows.WAIT_OBJECT_0 + 1: // Stop requested
-			// Closing the job handle (via defer) kills the process
+		case windows.WAIT_OBJECT_0 + 1: // Stop requested — just detach, don't kill
 			return nil
 		}
 	}
