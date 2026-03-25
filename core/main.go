@@ -35,7 +35,7 @@ func main() {
 				}
 			}
 			if ui := GetCurrentUI(); ui != nil && id != -1 {
-				ui.SendState(id, app)
+				ui.SendState(app)
 			}
 		}
 	}()

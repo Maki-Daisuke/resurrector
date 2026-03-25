@@ -1,24 +1,18 @@
 package main
 
 import (
-	"bufio"
-	"encoding/json"
-	"io"
+	"net/rpc"
+	"net/rpc/jsonrpc"
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"resurrector/util"
 )
 
-// UICommand represents a command from the UI.
-type UICommand struct {
-	Action string `json:"action"` // e.g. "exit", "stop"
-	AppID  int    `json:"app_id"`
-}
-
 type UIProcess struct {
-	cmd       *exec.Cmd
-	stdinPipe io.WriteCloser
-	stateChan chan *AppInfo
+	cmd    *exec.Cmd
+	client *rpc.Client
 }
 
 var currentUI *UIProcess
@@ -50,39 +44,35 @@ func ShowUI(stateChan chan *AppInfo, apps []*AppInfo) error {
 		return err
 	}
 
+	// Create JSON-RPC client over stdio
+	conn := &util.StdioConn{ReadCloser: stdout, WriteCloser: stdin}
+	client := jsonrpc.NewClient(conn)
+
 	ui := &UIProcess{
-		cmd:       cmd,
-		stdinPipe: stdin,
-		stateChan: stateChan,
+		cmd:    cmd,
+		client: client,
 	}
 	currentUI = ui
 
 	// Send initial state
-	for i, app := range apps {
-		ui.SendState(i, app)
+	for _, app := range apps {
+		ui.SendState(app)
 	}
 
-	// Read commands from UI
+	// Wait for UI to exit in background
 	go func() {
-		scanner := bufio.NewScanner(stdout)
-		for scanner.Scan() {
-			var uiCmd UICommand
-			if err := json.Unmarshal(scanner.Bytes(), &uiCmd); err == nil {
-				// We can handle incoming UI commands here if needed later
-			}
-		}
+		cmd.Wait()
 		currentUI = nil
 	}()
 
 	return nil
 }
 
-func (ui *UIProcess) SendState(id int, app *AppInfo) {
-	if ui == nil || ui.stdinPipe == nil {
+func (ui *UIProcess) SendState(app *AppInfo) {
+	if ui == nil || ui.client == nil {
 		return
 	}
 	msg := map[string]interface{}{
-		"id":           id,
 		"name":         app.Config.Name,
 		"pid":          app.PID,
 		"state":        string(app.State),
@@ -90,9 +80,10 @@ func (ui *UIProcess) SendState(id int, app *AppInfo) {
 		"command":      app.Config.Command,
 		"restartCount": app.RestartCount,
 	}
-	b, _ := json.Marshal(msg)
-	b = append(b, '\n')
-	ui.stdinPipe.Write(b)
+
+	// Send to UI as a notification using Go (asynchronous call)
+	var reply bool
+	ui.client.Go("UI.UpdateState", msg, &reply, nil)
 }
 
 func GetCurrentUI() *UIProcess {
