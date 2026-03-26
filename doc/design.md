@@ -31,18 +31,18 @@ To minimize system resource consumption, Resurrector consists of two independent
 ### 1. Core Process (`resurrector.exe`)
 
 - **Role**: Steady presence in the system tray, reading the TOML file, and starting/monitoring child processes.
-- **Technology**: Go (Pure), `energye/systray`, `golang.org/x/sys/windows`
-- **Features**: Does not have a UI; it continues to operate extremely lightly. When "Settings" is clicked from the system tray, it launches the UI process as a child process.
+- **Technology**: Go (Pure), `energye/systray`, `golang.org/x/sys/windows`, `github.com/shirou/gopsutil`
+- **Features**: Does not have a UI; it continues to operate extremely lightly. When "Settings" is clicked from the system tray, it launches the UI process as a child process. Process detection and matching is robustly handled using `gopsutil`.
 
 ### 2. UI Process (`resurrector-ui.exe`)
 
 - **Role**: Configuration screen for the user, real-time display of monitoring status.
 - **Technology**: Go + Wails + Svelte (TypeScript)
-- **Features**: Uses a custom Wails logger to utilize `STDOUT` as a dedicated pipe for pure JSON messaging (IPC). The process terminates when the window is closed.
+- **Features**: Uses a custom Wails logger that writes to `STDERR`, leaving `STDOUT` and `STDIN` exclusively for JSON-RPC messaging (IPC). The process terminates when the window is closed.
 
 ### Robust Inter-Process Communication (IPC)
 
-Communication between the core and UI processes is handled via standard I/O (stdio), making it secure by not opening any network ports. The core process spawns the UI process and communicates through pipes, ensuring a low-latency and secure link.
+Communication between the core and UI processes is handled via standard I/O (stdio) using Go's standard `net/rpc/jsonrpc` package. This makes it secure by not opening any network ports. The core process spawns the UI process and communicates through pipes, ensuring a low-latency and secure link.
 
 ## Directory Structure
 
