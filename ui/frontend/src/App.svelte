@@ -4,7 +4,6 @@
   import { Table, TableBody, TableBodyCell, TableBodyRow, TableHead, TableHeadCell, Badge } from "flowbite-svelte";
 
   type AppStateInfo = {
-    id: number;
     name: string;
     pid: number;
     state: string;
@@ -13,15 +12,15 @@
     restartCount: number;
   };
 
-  let apps: Record<number, AppStateInfo> = {};
-  let sortKey: keyof AppStateInfo = 'id';
+  let apps: Record<string, AppStateInfo> = {};
+  let sortKey: keyof AppStateInfo = 'name';
   let sortAsc = true;
 
   onMount(() => {
     EventsOn("app_state_update", (dataStr: string) => {
       try {
         const data: AppStateInfo = JSON.parse(dataStr);
-        apps[data.id] = data;
+        apps[data.name] = data;
         apps = { ...apps };
       } catch (e) {
         console.error("Failed to parse event:", e);
@@ -77,7 +76,7 @@
           Command {sortKey === 'command' ? (sortAsc ? '▲' : '▼') : ''}
         </TableHeadCell>
       </TableHead>
-      <TableBody class="divide-y">
+      <TableBody tableBodyClass="divide-y">
         {#each appList as app}
           <TableBodyRow>
             <TableBodyCell class="font-medium text-gray-900 dark:text-white">

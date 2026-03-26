@@ -6,6 +6,7 @@ import (
 	"net/rpc"
 	"net/rpc/jsonrpc"
 	"os"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
@@ -39,9 +40,16 @@ func (u *UI) UpdateState(msg map[string]interface{}, reply *bool) error {
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+}
 
-	// Start RPC server serving on Stdin/Stdout
+// domReady is called after the frontend DOM has been loaded.
+func (a *App) domReady(ctx context.Context) {
+	// Start RPC server serving on Stdin/Stdout in the background.
+	// We add a tiny delay to give Svelte's onMount enough time to register its EventsOn listener
+	// before we consume the buffered initial state from the OS pipe.
 	go func() {
+		time.Sleep(200 * time.Millisecond)
+		
 		server := rpc.NewServer()
 		server.Register(&UI{Ctx: ctx})
 

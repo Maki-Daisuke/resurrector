@@ -38,7 +38,6 @@ type Manager struct {
 	StateChan chan *AppInfo // Used to notify UI of state changes
 }
 
-
 func NewManager(cfg *util.Config, stateChan chan *AppInfo) *Manager {
 	m := &Manager{
 		StateChan: stateChan,
@@ -232,7 +231,15 @@ func findExistingProcess(cfg util.App) (int, error) {
 			continue
 		}
 
-		if cmdline == expectedCmdline {
+		// Try strict match first
+		if strings.EqualFold(cmdline, expectedCmdline) {
+			return int(p.Pid), nil
+		}
+
+		// Try normalized match (handle backslashes)
+		normCmd := strings.ReplaceAll(cmdline, "/", "\\")
+		normExpected := strings.ReplaceAll(expectedCmdline, "/", "\\")
+		if strings.EqualFold(normCmd, normExpected) {
 			return int(p.Pid), nil
 		}
 
@@ -243,13 +250,15 @@ func findExistingProcess(cfg util.App) (int, error) {
 
 		if len(slice) == len(args) {
 			match := true
-			base1 := filepath.Base(slice[0])
-			base2 := filepath.Base(args[0])
-			if !strings.EqualFold(base1, base2) {
+			// Compare basenames case-insensitively
+			base1 := strings.ToLower(filepath.Base(strings.ReplaceAll(slice[0], "/", "\\")))
+			base2 := strings.ToLower(filepath.Base(strings.ReplaceAll(args[0], "/", "\\")))
+
+			if base1 != base2 {
 				match = false
 			} else {
 				for i := 1; i < len(args); i++ {
-					if slice[i] != args[i] {
+					if !strings.EqualFold(slice[i], args[i]) {
 						match = false
 						break
 					}

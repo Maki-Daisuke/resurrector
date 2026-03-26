@@ -32,6 +32,7 @@ func main() {
 	// Parse config
 	cfg, err := util.LoadConfig("config.toml")
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load config.toml:\n\n%v", err)
 		showErrorDialog(
 			"Resurrector - Configuration Error",
 			fmt.Sprintf("Failed to load config.toml:\n\n%v", err),
@@ -48,15 +49,15 @@ func main() {
 	// Dispatch state updates to the UI, if active
 	go func() {
 		for app := range stateChan {
-			// Find index
-			id := -1
+			// Find and update the state in the manager's slice
 			for i, a := range mgr.Apps {
-				if a == app {
-					id = i
+				if a.Config.Name == app.Config.Name {
+					mgr.Apps[i] = app
 					break
 				}
 			}
-			if ui := GetCurrentUI(); ui != nil && id != -1 {
+
+			if ui := GetCurrentUI(); ui != nil {
 				ui.SendState(app)
 			}
 		}
