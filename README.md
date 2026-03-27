@@ -6,16 +6,20 @@ It is designed to ensure that critical applications remain running within the **
 
 ## Features
 
+- **Strict Lifecycle Control**: Resurrector completely owns the lifecycle of monitored apps. It spawns them as child processes bound to a **Windows Job Object**, guaranteeing that apps (and their subprocesses) cleanly terminate when stopped.
+- **Config-as-Code (SSoT)**: `config.toml` acts as the definitive Single Source of Truth. The core uses `fsnotify` to track changes in real-time and reconciles the system state automatically. Changes via the UI or external editors are applied instantly without restarting the core.
 - **Zero-Polling Monitoring**: Event-driven monitoring using Windows API (`WaitForSingleObject`). It does not waste CPU resources.
 - **Minimal Footprint**: The resident core process is written in pure Go and consumes only a few megabytes of memory.
 - **On-Demand Modern UI**: The configuration and status UI (Wails + Svelte) only launches when called from the system tray. It exits and frees all memory when not needed.
-- **Human-Readable Configuration**: Uses the `TOML` format for easy reading and writing.
 
-For more technical details about the architecture and IPC, please see [Design & Architecture](./doc/design.md).
+For more technical details about the architecture, IPC, and reconciliation loop, please see [Design & Architecture](./doc/design.md).
 
 ## Configuration (`config.toml`)
 
 Applications to be monitored are managed via a `config.toml` file located in the same directory as the executable.
+
+> [!WARNING]
+> Because Resurrector watches this file for real-time changes using `fsnotify`, **Atomic Writes** are required if modified by external tools. Edit directly using a standard text editor, or if scripting writes, write to a `.tmp` file and perform an atomic rename/move.
 
 ```toml
 # Resurrector Configuration

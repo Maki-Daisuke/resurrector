@@ -2,154 +2,303 @@ package main
 
 import (
 	"fmt"
-	"path/filepath"
-	"sort"
+	"log"
 	"strings"
+	"sync"
 	"time"
 	"unsafe"
 
-	"github.com/shirou/gopsutil/v4/process"
 	"golang.org/x/sys/windows"
 
 	"resurrector/util"
 )
 
+// AppState represents the lifecycle state of a monitored process.
 type AppState string
 
 const (
 	StateStopped  AppState = "Stopped"
+	StateStarting AppState = "Starting"
 	StateRunning  AppState = "Running"
 	StateRetrying AppState = "Retrying"
-	StateFailed   AppState = "Failed" // Exhausted max retries
+	StateFailed   AppState = "Failed"
+	StateRemoved  AppState = "Removed"
 )
 
-// AppInfo includes the static config and runtime state.
-type AppInfo struct {
-	Config       util.App
-	State        AppState
-	PID          int
-	RestartCount int
-	stopChan     chan struct{}
+// MonitorStatus is the snapshot of a Monitor's current state, sent to the UI via IPC.
+type MonitorStatus struct {
+	Name         string   `json:"name"`
+	State        AppState `json:"state"`
+	PID          int      `json:"pid"`
+	Enabled      bool     `json:"enabled"`
+	Command      string   `json:"command"`
+	Args         []string `json:"args"`
+	RestartCount int      `json:"restartCount"`
 }
 
-// Manager handles all monitored applications.
-type Manager struct {
-	Apps      []*AppInfo
-	StateChan chan *AppInfo // Used to notify UI of state changes
+// Monitor manages the lifecycle of a single monitored process.
+// It runs a monitoring goroutine that handles starting, watching, restarting,
+// and stopping the process using a Windows Job Object.
+type Monitor struct {
+	mu sync.Mutex
+
+	config util.App
+	state  AppState
+	pid    int
+
+	restartCount int
+
+	// Job Object handle for the current process tree.
+	jobHandle windows.Handle
+
+	// stopChan signals the monitor goroutine to stop.
+	stopChan chan struct{}
+	// doneChan is closed when the monitor goroutine has fully exited.
+	doneChan chan struct{}
+
+	// onStateChange is called whenever the monitor's state changes.
+	onStateChange func(MonitorStatus)
 }
 
-func NewManager(cfg *util.Config, stateChan chan *AppInfo) *Manager {
-	m := &Manager{
-		StateChan: stateChan,
-	}
-	for _, appCfg := range cfg.Apps {
-		app := &AppInfo{
-			Config:   *appCfg,
-			State:    StateStopped,
-			stopChan: make(chan struct{}),
-		}
-		m.Apps = append(m.Apps, app)
-	}
-	sort.Slice(m.Apps, func(i, j int) bool {
-		return m.Apps[i].Config.Name < m.Apps[j].Config.Name
-	})
-	return m
-}
-
-func (m *Manager) StartAll() {
-	for _, app := range m.Apps {
-		if app.Config.Enabled {
-			go m.monitorLoop(app)
-		}
-	}
-}
-
-func (m *Manager) setState(app *AppInfo, state AppState) {
-	app.State = state
-	if m.StateChan != nil {
-		m.StateChan <- app
+// NewMonitor creates a new Monitor for the given config entry.
+func NewMonitor(cfg util.App, onStateChange func(MonitorStatus)) *Monitor {
+	return &Monitor{
+		config:        cfg,
+		state:         StateStopped,
+		onStateChange: onStateChange,
 	}
 }
 
-func (m *Manager) monitorLoop(app *AppInfo) {
-	app.RestartCount = 0
+// Status returns a snapshot of the monitor's current state.
+func (m *Monitor) Status() MonitorStatus {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return MonitorStatus{
+		Name:         m.config.Name,
+		State:        m.state,
+		PID:          m.pid,
+		Enabled:      m.config.Enabled,
+		Command:      m.config.Command,
+		Args:         m.config.Args,
+		RestartCount: m.restartCount,
+	}
+}
+
+// Start launches the monitoring goroutine. If already running, it is a no-op.
+func (m *Monitor) Start() {
+	m.mu.Lock()
+	if m.stopChan != nil {
+		m.mu.Unlock()
+		return // already running
+	}
+	m.stopChan = make(chan struct{})
+	m.doneChan = make(chan struct{})
+	m.mu.Unlock()
+
+	go m.monitorLoop()
+}
+
+// Stop signals the monitoring goroutine to stop and waits for it to finish.
+// The Job Object handle is closed, which kills the entire process tree.
+func (m *Monitor) Stop() {
+	m.mu.Lock()
+	if m.stopChan == nil {
+		m.mu.Unlock()
+		return // not running
+	}
+	close(m.stopChan)
+	m.stopChan = nil
+	doneChan := m.doneChan
+	m.mu.Unlock()
+
+	// Wait for the goroutine to finish
+	<-doneChan
+}
+
+// UpdateMonitoringParams hot-reloads monitoring parameters without restarting the process.
+func (m *Monitor) UpdateMonitoringParams(cfg util.App) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.config.RestartDelaySec = cfg.RestartDelaySec
+	m.config.HealthyTimeoutSec = cfg.HealthyTimeoutSec
+	m.config.MaxRetries = cfg.MaxRetries
+}
+
+// SetConfig replaces the monitor's config. This is used by the Reconciler
+// to update fields (e.g. Enabled) before calling Stop(), so that any
+// state change notifications emitted during shutdown reflect the correct config.
+func (m *Monitor) SetConfig(cfg util.App) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.config = cfg
+}
+
+// Config returns the current config for this monitor.
+func (m *Monitor) Config() util.App {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.config
+}
+
+// setState updates the state and notifies the callback.
+func (m *Monitor) setState(state AppState) {
+	m.state = state
+	if m.onStateChange != nil {
+		m.onStateChange(m.statusLocked())
+	}
+}
+
+// statusLocked returns a status snapshot. Must be called with m.mu held.
+func (m *Monitor) statusLocked() MonitorStatus {
+	return MonitorStatus{
+		Name:         m.config.Name,
+		State:        m.state,
+		PID:          m.pid,
+		Enabled:      m.config.Enabled,
+		Command:      m.config.Command,
+		Args:         m.config.Args,
+		RestartCount: m.restartCount,
+	}
+}
+
+// monitorLoop is the main goroutine that manages the process lifecycle.
+func (m *Monitor) monitorLoop() {
+	defer func() {
+		m.mu.Lock()
+		m.stopChan = nil
+		m.doneChan = nil
+		m.mu.Unlock()
+	}()
+	defer close(m.doneChan)
+
+	m.mu.Lock()
+	m.restartCount = 0
+	stopChan := m.stopChan
+	m.mu.Unlock()
 
 	for {
-		app.PID = 0
+		m.mu.Lock()
+		m.pid = 0
+		m.setState(StateStarting)
+		cfg := m.config // snapshot under lock
+		m.mu.Unlock()
+
 		startTime := time.Now()
 
-		// Search for an existing process
-		pid, err := findExistingProcess(app.Config)
-		if err == nil && pid > 0 {
-			// Found — attach and monitor
-			app.PID = pid
-			_ = monitorExistingProcess(pid, app.stopChan, func(p int) {
-				m.setState(app, StateRunning)
-			})
-		} else {
-			// Not found — start a new process and attach
-			newPID, startErr := startProcess(app.Config)
-			if startErr != nil {
-				app.RestartCount++
-				if app.Config.MaxRetries > 0 && app.RestartCount > app.Config.MaxRetries {
-					m.setState(app, StateFailed)
-					return
-				}
-				m.setState(app, StateRetrying)
-				select {
-				case <-time.After(time.Duration(app.Config.RestartDelaySec) * time.Second):
-					continue
-				case <-app.stopChan:
-					m.setState(app, StateStopped)
-					return
-				}
+		pid, jobHandle, err := startProcessWithJobObject(cfg)
+		if err != nil {
+			log.Printf("[%s] Failed to start process: %v", cfg.Name, err)
+
+			m.mu.Lock()
+			m.restartCount++
+			if cfg.MaxRetries > 0 && m.restartCount > cfg.MaxRetries {
+				m.setState(StateFailed)
+				m.mu.Unlock()
+				return
 			}
-			app.PID = newPID
-			_ = monitorExistingProcess(newPID, app.stopChan, func(p int) {
-				m.setState(app, StateRunning)
-			})
+			m.setState(StateRetrying)
+			delay := time.Duration(m.config.RestartDelaySec) * time.Second
+			m.mu.Unlock()
+
+			select {
+			case <-time.After(delay):
+				continue
+			case <-stopChan:
+				m.mu.Lock()
+				m.setState(StateStopped)
+				m.mu.Unlock()
+				return
+			}
 		}
 
+		m.mu.Lock()
+		m.pid = pid
+		m.jobHandle = jobHandle
+		m.setState(StateRunning)
+		m.mu.Unlock()
+
+		// Wait for the process to exit or stop signal
+		exitedNaturally := waitForProcessOrStop(pid, stopChan)
+
+		m.mu.Lock()
+		m.pid = 0
+		// Close the Job Object handle to clean up the process tree
+		if m.jobHandle != 0 {
+			windows.CloseHandle(m.jobHandle)
+			m.jobHandle = 0
+		}
+		m.mu.Unlock()
+
+		if !exitedNaturally {
+			// Stop was requested
+			m.mu.Lock()
+			m.setState(StateStopped)
+			m.mu.Unlock()
+			return
+		}
+
+		// Process exited naturally — determine if it was healthy
+		m.mu.Lock()
 		duration := time.Since(startTime)
-		app.PID = 0
+		healthyTimeout := time.Duration(m.config.HealthyTimeoutSec) * time.Second
 
-		// Process exited (or was stopped)
-
-		select {
-		case <-app.stopChan:
-			m.setState(app, StateStopped)
-			return
-		default:
-		}
-
-		if duration >= time.Duration(app.Config.HealthyTimeoutSec)*time.Second {
-			app.RestartCount = 0
+		if duration >= healthyTimeout {
+			m.restartCount = 0
 		} else {
-			app.RestartCount++
+			m.restartCount++
 		}
 
-		if app.Config.MaxRetries > 0 && app.RestartCount > app.Config.MaxRetries {
-			m.setState(app, StateFailed)
+		if m.config.MaxRetries > 0 && m.restartCount > m.config.MaxRetries {
+			m.setState(StateFailed)
+			m.mu.Unlock()
 			return
 		}
 
-		m.setState(app, StateRetrying)
+		m.setState(StateRetrying)
+		delay := time.Duration(m.config.RestartDelaySec) * time.Second
+		m.mu.Unlock()
 
-		// Wait before restart
 		select {
-		case <-time.After(time.Duration(app.Config.RestartDelaySec) * time.Second):
-			// continue loop
-		case <-app.stopChan:
-			m.setState(app, StateStopped)
+		case <-time.After(delay):
+			// continue restart loop
+		case <-stopChan:
+			m.mu.Lock()
+			m.setState(StateStopped)
+			m.mu.Unlock()
 			return
 		}
 	}
 }
 
-// startProcess creates a new detached process and returns its PID.
-// The process is NOT tied to a Job Object, so it survives when resurrector exits.
-func startProcess(cfg util.App) (int, error) {
-	// Build Command Line
+// startProcessWithJobObject creates a Windows Job Object, spawns the process,
+// and assigns it to the Job Object. The Job Object is configured with
+// JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE so that closing the handle kills the
+// entire process tree.
+func startProcessWithJobObject(cfg util.App) (pid int, jobHandle windows.Handle, err error) {
+	// Create Job Object
+	jobHandle, err = windows.CreateJobObject(nil, nil)
+	if err != nil {
+		return 0, 0, fmt.Errorf("CreateJobObject: %w", err)
+	}
+
+	// Configure Job Object to kill all processes when the handle is closed
+	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
+		BasicLimitInformation: windows.JOBOBJECT_BASIC_LIMIT_INFORMATION{
+			LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+		},
+	}
+	_, err = windows.SetInformationJobObject(
+		jobHandle,
+		windows.JobObjectExtendedLimitInformation,
+		uintptr(unsafe.Pointer(&info)),
+		uint32(unsafe.Sizeof(info)),
+	)
+	if err != nil {
+		windows.CloseHandle(jobHandle)
+		return 0, 0, fmt.Errorf("SetInformationJobObject: %w", err)
+	}
+
+	// Build command line
 	args := []string{cfg.Command}
 	args = append(args, cfg.Args...)
 
@@ -160,14 +309,16 @@ func startProcess(cfg util.App) (int, error) {
 	cmdline := strings.Join(escapedArgs, " ")
 	cmdlinePtr, err := windows.UTF16PtrFromString(cmdline)
 	if err != nil {
-		return 0, err
+		windows.CloseHandle(jobHandle)
+		return 0, 0, fmt.Errorf("UTF16PtrFromString(cmdline): %w", err)
 	}
 
 	var dirPtr *uint16
 	if cfg.CWD != "" {
 		dirPtr, err = windows.UTF16PtrFromString(cfg.CWD)
 		if err != nil {
-			return 0, err
+			windows.CloseHandle(jobHandle)
+			return 0, 0, fmt.Errorf("UTF16PtrFromString(cwd): %w", err)
 		}
 	}
 
@@ -178,15 +329,14 @@ func startProcess(cfg util.App) (int, error) {
 		si.ShowWindow = windows.SW_HIDE
 	}
 
-	var pi windows.ProcessInformation
-
-	var creationFlags uint32
+	var creationFlags uint32 = windows.CREATE_SUSPENDED
 	if cfg.HideWindow {
-		creationFlags = windows.CREATE_NO_WINDOW
+		creationFlags |= windows.CREATE_NO_WINDOW
 	} else {
-		creationFlags = windows.CREATE_NEW_CONSOLE
+		creationFlags |= windows.CREATE_NEW_CONSOLE
 	}
 
+	var pi windows.ProcessInformation
 	err = windows.CreateProcess(
 		nil,
 		cmdlinePtr,
@@ -200,89 +350,52 @@ func startProcess(cfg util.App) (int, error) {
 		&pi,
 	)
 	if err != nil {
-		return 0, fmt.Errorf("CreateProcess: %w", err)
+		windows.CloseHandle(jobHandle)
+		return 0, 0, fmt.Errorf("CreateProcess: %w", err)
 	}
 
-	// ハンドルを即座に閉じてデタッチする
+	// Assign the process to the Job Object before resuming it.
+	// This ensures child processes spawned after resume are also captured.
+	err = windows.AssignProcessToJobObject(jobHandle, pi.Process)
+	if err != nil {
+		// Kill the suspended process and clean up
+		windows.TerminateProcess(pi.Process, 1)
+		windows.CloseHandle(pi.Thread)
+		windows.CloseHandle(pi.Process)
+		windows.CloseHandle(jobHandle)
+		return 0, 0, fmt.Errorf("AssignProcessToJobObject: %w", err)
+	}
+
+	// Resume the process now that it's inside the Job Object
+	ret, err := windows.ResumeThread(pi.Thread)
+	if ret == 0xFFFFFFFF || err != nil {
+		windows.TerminateProcess(pi.Process, 1)
+		windows.CloseHandle(pi.Thread)
+		windows.CloseHandle(pi.Process)
+		windows.CloseHandle(jobHandle)
+		return 0, 0, fmt.Errorf("ResumeThread: %w", err)
+	}
+
 	windows.CloseHandle(pi.Thread)
 	windows.CloseHandle(pi.Process)
 
-	return int(pi.ProcessId), nil
+	log.Printf("[%s] Process started (PID: %d, Job Object: assigned)", cfg.Name, pi.ProcessId)
+	return int(pi.ProcessId), jobHandle, nil
 }
 
-func findExistingProcess(cfg util.App) (int, error) {
-	procs, err := process.Processes()
+// waitForProcessOrStop waits for a process to exit or for a stop signal.
+// Returns true if the process exited naturally, false if stop was requested.
+func waitForProcessOrStop(pid int, stopChan <-chan struct{}) bool {
+	processHandle, err := windows.OpenProcess(
+		windows.SYNCHRONIZE|windows.PROCESS_QUERY_LIMITED_INFORMATION,
+		false,
+		uint32(pid),
+	)
 	if err != nil {
-		return 0, err
+		// Process already gone
+		return true
 	}
-
-	args := []string{cfg.Command}
-	args = append(args, cfg.Args...)
-
-	var escapedArgs []string
-	for _, arg := range args {
-		escapedArgs = append(escapedArgs, windows.EscapeArg(arg))
-	}
-	expectedCmdline := strings.Join(escapedArgs, " ")
-
-	for _, p := range procs {
-		cmdline, err := p.Cmdline()
-		if err != nil {
-			continue
-		}
-
-		// Try strict match first
-		if strings.EqualFold(cmdline, expectedCmdline) {
-			return int(p.Pid), nil
-		}
-
-		// Try normalized match (handle backslashes)
-		normCmd := strings.ReplaceAll(cmdline, "/", "\\")
-		normExpected := strings.ReplaceAll(expectedCmdline, "/", "\\")
-		if strings.EqualFold(normCmd, normExpected) {
-			return int(p.Pid), nil
-		}
-
-		slice, err := p.CmdlineSlice()
-		if err != nil {
-			continue
-		}
-
-		if len(slice) == len(args) {
-			match := true
-			// Compare basenames case-insensitively
-			base1 := strings.ToLower(filepath.Base(strings.ReplaceAll(slice[0], "/", "\\")))
-			base2 := strings.ToLower(filepath.Base(strings.ReplaceAll(args[0], "/", "\\")))
-
-			if base1 != base2 {
-				match = false
-			} else {
-				for i := 1; i < len(args); i++ {
-					if !strings.EqualFold(slice[i], args[i]) {
-						match = false
-						break
-					}
-				}
-			}
-			if match {
-				return int(p.Pid), nil
-			}
-		}
-	}
-	return 0, nil
-}
-
-// monitorExistingProcess monitors an already-running process by its PID.
-// When stop is requested, it just stops monitoring without killing the process.
-func monitorExistingProcess(pid int, stopChan chan struct{}, onStart func(int)) error {
-	access := uint32(windows.SYNCHRONIZE | windows.PROCESS_QUERY_LIMITED_INFORMATION)
-	handle, err := windows.OpenProcess(access, false, uint32(pid))
-	if err != nil {
-		return fmt.Errorf("OpenProcess: %w", err)
-	}
-	defer windows.CloseHandle(handle)
-
-	onStart(pid)
+	defer windows.CloseHandle(processHandle)
 
 	stopEvent, _ := windows.CreateEvent(nil, 0, 0, nil)
 	defer windows.CloseHandle(stopEvent)
@@ -295,23 +408,22 @@ func monitorExistingProcess(pid int, stopChan chan struct{}, onStart func(int)) 
 		case <-stopChan:
 			windows.SetEvent(stopEvent)
 		case <-done:
-			// Process exited naturally — clean up goroutine
 		}
 	}()
 
-	handles := []windows.Handle{handle, stopEvent}
+	handles := []windows.Handle{processHandle, stopEvent}
 
-	for {
-		event, err := windows.WaitForMultipleObjects(handles, false, windows.INFINITE)
-		if err != nil {
-			return err
-		}
+	event, err := windows.WaitForMultipleObjects(handles, false, windows.INFINITE)
+	if err != nil {
+		return true // assume exited on error
+	}
 
-		switch event {
-		case windows.WAIT_OBJECT_0: // Process exited
-			return nil
-		case windows.WAIT_OBJECT_0 + 1: // Stop requested — just detach, don't kill
-			return nil
-		}
+	switch event {
+	case windows.WAIT_OBJECT_0: // Process exited
+		return true
+	case windows.WAIT_OBJECT_0 + 1: // Stop requested
+		return false
+	default:
+		return true
 	}
 }

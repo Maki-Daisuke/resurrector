@@ -3,9 +3,13 @@ package main
 import (
 	_ "embed"
 	"fmt"
+	"log"
 	"os"
+	"path/filepath"
+	"time"
 	"unsafe"
 
+	"github.com/fsnotify/fsnotify"
 	"golang.org/x/sys/windows"
 
 	"resurrector/util"
@@ -28,9 +32,24 @@ func showErrorDialog(title, message string) {
 	procMessageBox.Call(0, uintptr(unsafe.Pointer(messagePtr)), uintptr(unsafe.Pointer(titlePtr)), mbOK|mbIconError)
 }
 
+// resolveConfigPath returns the absolute path to config.toml relative to the executable.
+func resolveConfigPath() (string, error) {
+	exePath, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("getting executable path: %w", err)
+	}
+	return filepath.Join(filepath.Dir(exePath), "config.toml"), nil
+}
+
 func main() {
-	// Parse config
-	cfg, err := util.LoadConfig("config.toml")
+	configPath, err := resolveConfigPath()
+	if err != nil {
+		showErrorDialog("Resurrector - Error", fmt.Sprintf("Failed to resolve config path:\n\n%v", err))
+		os.Exit(1)
+	}
+
+	// Initial config load
+	apps, err := util.LoadConfig(configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to load config.toml:\n\n%v", err)
 		showErrorDialog(
@@ -40,36 +59,128 @@ func main() {
 		os.Exit(1)
 	}
 
-	stateChan := make(chan *AppInfo, 100)
-	mgr := NewManager(cfg, stateChan)
+	// State change channel for UI notifications
+	stateChan := make(chan MonitorStatus, 100)
+	onStateChange := func(status MonitorStatus) {
+		select {
+		case stateChan <- status:
+		default:
+			// Channel full — drop oldest to avoid blocking
+			log.Printf("[StateChange] Channel full, dropping update for %q", status.Name)
+		}
+	}
 
-	// Start monitoring apps that are enabled by default
-	mgr.StartAll()
+	// Create reconciler and perform initial reconciliation
+	reconciler := NewReconciler(onStateChange)
+	reconciler.Reconcile(apps)
+	log.Printf("[Main] Initial reconciliation complete (%d entries)", len(apps))
 
-	// Dispatch state updates to the UI, if active
+	// Forward state changes to the UI process
 	go func() {
-		for app := range stateChan {
-			// Find and update the state in the manager's slice
-			for i, a := range mgr.Apps {
-				if a.Config.Name == app.Config.Name {
-					mgr.Apps[i] = app
-					break
-				}
-			}
-
+		for status := range stateChan {
 			if ui := GetCurrentUI(); ui != nil {
-				ui.SendState(app)
+				ui.SendState(status)
 			}
 		}
 	}()
 
-	// Start tray loop
+	// Start fsnotify watcher for config.toml
+	go watchConfig(configPath, reconciler)
+
+	// Start tray loop (blocks until quit)
 	RunSystray(iconData, func() {
-		err := ShowUI(stateChan, mgr.Apps)
+		err := ShowUI(reconciler)
 		if err != nil {
-			fmt.Printf("Failed to show UI: %v\n", err)
+			log.Printf("[Main] Failed to show UI: %v", err)
 		}
 	}, func() {
+		log.Println("[Main] Quit requested — stopping all monitors")
+		reconciler.StopAll()
 		os.Exit(0)
 	})
+}
+
+// watchConfig uses fsnotify to watch config.toml for changes and triggers
+// reconciliation with debouncing.
+func watchConfig(configPath string, reconciler *Reconciler) {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Printf("[Watcher] Failed to create fsnotify watcher: %v", err)
+		return
+	}
+	defer watcher.Close()
+
+	// Watch the directory (not the file) to handle atomic renames.
+	// fsnotify can miss events on the file itself when editors do "write-to-temp + rename".
+	dir := filepath.Dir(configPath)
+	if err := watcher.Add(dir); err != nil {
+		log.Printf("[Watcher] Failed to watch directory %s: %v", dir, err)
+		return
+	}
+
+	log.Printf("[Watcher] Watching %s for changes", configPath)
+
+	const debounceDelay = 500 * time.Millisecond
+	var debounceTimer *time.Timer
+
+	filename := filepath.Base(configPath)
+
+	for {
+		select {
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return
+			}
+			// Only react to changes to our config file
+			if filepath.Base(event.Name) != filename {
+				continue
+			}
+			if !event.Has(fsnotify.Write) && !event.Has(fsnotify.Create) && !event.Has(fsnotify.Rename) {
+				continue
+			}
+
+			// Debounce: reset timer on each event
+			if debounceTimer != nil {
+				debounceTimer.Stop()
+			}
+			debounceTimer = time.AfterFunc(debounceDelay, func() {
+				reloadAndReconcile(configPath, reconciler)
+			})
+
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return
+			}
+			log.Printf("[Watcher] Error: %v", err)
+		}
+	}
+}
+
+// reloadAndReconcile attempts to reload config.toml and reconcile.
+// If the config is invalid, it logs the error and keeps the current state.
+func reloadAndReconcile(configPath string, reconciler *Reconciler) {
+	const maxRetries = 3
+	const retryDelay = 200 * time.Millisecond
+
+	var apps map[string]*util.App
+	var err error
+
+	// Retry logic for "Access Denied" / "File in use" errors from atomic writes
+	for attempt := range maxRetries {
+		apps, err = util.LoadConfig(configPath)
+		if err == nil {
+			break
+		}
+		log.Printf("[Reload] Attempt %d failed: %v", attempt+1, err)
+		time.Sleep(retryDelay)
+	}
+
+	if err != nil {
+		// Invalid config — keep current state, log error
+		log.Printf("[Reload] Config reload failed after %d attempts, keeping current state: %v", maxRetries, err)
+		return
+	}
+
+	log.Printf("[Reload] Config reloaded successfully (%d entries), reconciling...", len(apps))
+	reconciler.Reconcile(apps)
 }

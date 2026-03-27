@@ -7,11 +7,6 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-// Config holds the entire application configuration, keyed by app name.
-type Config struct {
-	Apps map[string]*App
-}
-
 // App represents the configuration for a single managed application.
 type App struct {
 	Name              string   `toml:"-"`
@@ -26,7 +21,9 @@ type App struct {
 }
 
 // LoadConfig reads the configuration file from the given path and parses it.
-func LoadConfig(path string) (*Config, error) {
+// Returns a map of app name → App config. If the file is invalid TOML,
+// an error is returned; the caller should keep the current state unchanged.
+func LoadConfig(path string) (map[string]*App, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading config file %s: %w", path, err)
@@ -44,5 +41,5 @@ func LoadConfig(path string) (*Config, error) {
 		app.Name = name
 	}
 
-	return &Config{Apps: raw}, nil
+	return raw, nil
 }

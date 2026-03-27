@@ -9,6 +9,7 @@
     state: string;
     enabled: boolean;
     command: string;
+    args: string[];
     restartCount: number;
   };
 
@@ -20,8 +21,13 @@
     EventsOn("app_state_update", (dataStr: string) => {
       try {
         const data: AppStateInfo = JSON.parse(dataStr);
-        apps[data.name] = data;
-        apps = { ...apps };
+        if (data.state === "Removed") {
+          delete apps[data.name];
+          apps = { ...apps };
+        } else {
+          apps[data.name] = data;
+          apps = { ...apps };
+        }
       } catch (e) {
         console.error("Failed to parse event:", e);
       }
@@ -91,8 +97,8 @@
             <TableBodyCell>
               <Badge color={app.enabled ? 'blue' : 'dark'}>{app.enabled ? 'Enabled' : 'Disabled'}</Badge>
             </TableBodyCell>
-            <TableBodyCell class="font-mono text-sm max-w-xs truncate" title={app.command}>
-              {app.command}
+            <TableBodyCell class="font-mono text-sm max-w-xs truncate" title={[app.command, ...(app.args || [])].join(' ')}>
+              {[app.command, ...(app.args || [])].join(' ')}
             </TableBodyCell>
           </TableBodyRow>
         {/each}

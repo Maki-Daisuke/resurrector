@@ -6,19 +6,29 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 
 	"resurrector/util"
 )
 
+// UIProcess represents a running UI process and its RPC client.
 type UIProcess struct {
 	cmd    *exec.Cmd
-	client *rpc.Client
+	client interface {
+		Go(serviceMethod string, args interface{}, reply interface{}, done chan *rpc.Call) *rpc.Call
+	}
 }
 
-var currentUI *UIProcess
+var (
+	currentUI   *UIProcess
+	currentUIMu sync.Mutex
+)
 
-// ShowUI launches the UI process and bridges communication.
-func ShowUI(stateChan chan *AppInfo, apps []*AppInfo) error {
+// ShowUI launches the UI process and sends the initial state from the reconciler.
+func ShowUI(reconciler *Reconciler) error {
+	currentUIMu.Lock()
+	defer currentUIMu.Unlock()
+
 	if currentUI != nil {
 		return nil // Already running
 	}
@@ -54,31 +64,36 @@ func ShowUI(stateChan chan *AppInfo, apps []*AppInfo) error {
 	}
 	currentUI = ui
 
-	// Send initial state
-	for _, app := range apps {
-		ui.SendState(app)
+	// Send initial state from the reconciler
+	statuses := reconciler.AllStatuses()
+	for _, status := range statuses {
+		ui.SendState(status)
 	}
 
 	// Wait for UI to exit in background
 	go func() {
 		cmd.Wait()
+		currentUIMu.Lock()
 		currentUI = nil
+		currentUIMu.Unlock()
 	}()
 
 	return nil
 }
 
-func (ui *UIProcess) SendState(app *AppInfo) {
+// SendState sends a state update to the UI process via JSON-RPC.
+func (ui *UIProcess) SendState(status MonitorStatus) {
 	if ui == nil || ui.client == nil {
 		return
 	}
 	msg := map[string]interface{}{
-		"name":         app.Config.Name,
-		"pid":          app.PID,
-		"state":        string(app.State),
-		"enabled":      app.Config.Enabled,
-		"command":      app.Config.Command,
-		"restartCount": app.RestartCount,
+		"name":         status.Name,
+		"pid":          status.PID,
+		"state":        string(status.State),
+		"enabled":      status.Enabled,
+		"command":      status.Command,
+		"args":         status.Args,
+		"restartCount": status.RestartCount,
 	}
 
 	// Send to UI as a notification using Go (asynchronous call)
@@ -86,6 +101,9 @@ func (ui *UIProcess) SendState(app *AppInfo) {
 	ui.client.Go("UI.UpdateState", msg, &reply, nil)
 }
 
+// GetCurrentUI returns the current UI process, or nil if not running.
 func GetCurrentUI() *UIProcess {
+	currentUIMu.Lock()
+	defer currentUIMu.Unlock()
 	return currentUI
 }
