@@ -8,8 +8,7 @@
     "build:core-tray-icon": "shx cp ui/build/windows/icon.ico core/icon.ico",
     "build:core": "npm run build:core-tray-icon && cd core && go build -ldflags=\"-H windowsgui\" -o ../build/resurrector.exe",
     "build:ui": "cd ui && wails build && cd .. && shx cp ui/build/bin/ui.exe build/resurrector-ui.exe",
-    "build:config": "shx cp config.example.toml build/config.toml",
-    "build": "npm run prebuild && npm run build:icons && npm run build:ui && npm run build:core && npm run build:config",
+    "build": "npm run prebuild && npm run build:icons && npm run build:ui && npm run build:core",
     "clean": "shx rm -rf build core/icon.ico core/*.syso ui/build/windows/*.ico ui/build/windows/*.syso ui/build/appicon.png"
   },
   "devDependencies": {

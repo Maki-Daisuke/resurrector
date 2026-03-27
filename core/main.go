@@ -2,6 +2,7 @@ package main
 
 import (
 	_ "embed"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -18,6 +19,17 @@ import (
 //go:embed icon.ico
 var iconData []byte
 
+var defaultConfigFile = []byte(`["Test Ping App"]
+enabled = true
+command = "cmd.exe"
+args = ["/c", "echo", "Starting ping...", "&&", "ping", "127.0.0.1", "-n", "10"]
+cwd = ""
+restart_delay_sec = 2
+healthy_timeout_sec = 5
+hide_window = false
+max_retries = 3
+`)
+
 var (
 	user32         = windows.NewLazySystemDLL("user32.dll")
 	procMessageBox = user32.NewProc("MessageBoxW")
@@ -32,17 +44,42 @@ func showErrorDialog(title, message string) {
 	procMessageBox.Call(0, uintptr(unsafe.Pointer(messagePtr)), uintptr(unsafe.Pointer(titlePtr)), mbOK|mbIconError)
 }
 
-// resolveConfigPath returns the absolute path to config.toml relative to the executable.
-func resolveConfigPath() (string, error) {
-	exePath, err := os.Executable()
-	if err != nil {
-		return "", fmt.Errorf("getting executable path: %w", err)
+// resolveConfigPath returns the absolute path to config.toml.
+// If customPath is provided via '-f', it returns that.
+// Otherwise, it falls back to ~/.config/resurrector/config.toml and creates it from defaults if missing.
+func resolveConfigPath(customPath string) (string, error) {
+	if customPath != "" {
+		return filepath.Abs(customPath)
 	}
-	return filepath.Join(filepath.Dir(exePath), "config.toml"), nil
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("getting user home dir: %w", err)
+	}
+
+	configDir := filepath.Join(home, ".config", "resurrector")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return "", fmt.Errorf("creating config directory: %w", err)
+	}
+
+	configPath := filepath.Join(configDir, "config.toml")
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		// Create default config file
+		if err := os.WriteFile(configPath, defaultConfigFile, 0644); err != nil {
+			return "", fmt.Errorf("writing default config.toml: %w", err)
+		}
+		log.Printf("[Main] Created default config.toml at %s", configPath)
+	}
+
+	return configPath, nil
 }
 
 func main() {
-	configPath, err := resolveConfigPath()
+	var configFlag string
+	flag.StringVar(&configFlag, "f", "", "Path to config.toml")
+	flag.Parse()
+
+	configPath, err := resolveConfigPath(configFlag)
 	if err != nil {
 		showErrorDialog("Resurrector - Error", fmt.Sprintf("Failed to resolve config path:\n\n%v", err))
 		os.Exit(1)
@@ -89,7 +126,7 @@ func main() {
 
 	// Start tray loop (blocks until quit)
 	RunSystray(iconData, func() {
-		err := ShowUI(reconciler)
+		err := ShowUI(reconciler, configPath)
 		if err != nil {
 			log.Printf("[Main] Failed to show UI: %v", err)
 		}

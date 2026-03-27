@@ -16,7 +16,7 @@ For more technical details about the architecture, IPC, and reconciliation loop,
 
 ## Configuration (`config.toml`)
 
-Applications to be monitored are managed via a `config.toml` file located in the same directory as the executable.
+Applications to be monitored are managed via a `config.toml` file located in `%USERPROFILE%\.config\resurrector\config.toml`. The file is automatically created with sample content when you launch the core application for the first time. You can also specify a custom configuration file path using the `-f` command-line argument.
 
 > [!WARNING]
 > Because Resurrector watches this file for real-time changes using `fsnotify`, **Atomic Writes** are required if modified by external tools. Edit directly using a standard text editor, or if scripting writes, write to a `.tmp` file and perform an atomic rename/move.
@@ -25,37 +25,33 @@ Applications to be monitored are managed via a `config.toml` file located in the
 # Resurrector Configuration
 
 ["PowerToys Awake"]
-enabled = true
 command = 'C:\Program Files\PowerToys\modules\Awake\PowerToys.Awake.exe'
 args = ["--use-pt-config"]
 cwd = 'C:\Program Files\PowerToys\modules\Awake'
-restart_delay_sec = 3
-healthy_timeout_sec = 60
+enabled = true
 hide_window = true
+restart_delay_sec = 3
 max_retries = 5
+healthy_timeout_sec = 60
 
 ["My Svelte Dev Server"]
-enabled = false
-command = 'npm.cmd'
+command = 'npm'
 args = ["run", "dev"]
 cwd = 'C:\Users\user\projects\my-svelte-app'
-restart_delay_sec = 5
-healthy_timeout_sec = 60
-hide_window = false
-max_retries = 3
+enabled = false
 ```
 
 ### Item Definitions
 
-- `name` (String): The identifier name displayed on the UI.
-- `enabled` (Boolean): If `true`, starts monitoring on startup or UI request.
-- `command` (String): The full path to the command or executable.
-- `args` (Array of Strings): List of arguments to pass to the command.
-- `cwd` (String): The working directory (current directory) for running the command.
-- `restart_delay_sec` (Integer): The wait time (seconds) before attempting a restart after detecting a process termination.
-- `healthy_timeout_sec` (Integer): If the process continues to run stably for this many seconds after a restart, the retry count is reset to 0.
-- `hide_window` (Boolean): If `true`, launches the process in the background (hidden window).
-- `max_retries` (Integer): The maximum number of restarts before stopping monitoring due to persistent crashes (crash loop prevention).
+- `[name]` (String): The identifier name displayed on the UI.
+- `command` (String): The full path to the command or executable. **(Mandatory)**
+- `args` (Array of Strings): List of arguments to pass to the command. (Default: `[]`)
+- `cwd` (String): The working directory (current directory) for running the command. (Default: The directory where the `command` is located)
+- `enabled` (Boolean): If `true`, starts monitoring on startup or UI request. **(Mandatory)**
+- `hide_window` (Boolean): If `true`, launches the process in the background (hidden window). (Default: `false`)
+- `restart_delay_sec` (Integer): The wait time (seconds) before attempting a restart after detecting a process termination. (Default: `0`)
+- `max_retries` (Integer): The maximum number of restarts before stopping monitoring due to persistent crashes (crash loop prevention). (Default: `0` / Infinite retry)
+- `healthy_timeout_sec` (Integer): If the process continues to run stably for this many seconds after a restart, the retry count is reset to 0. (Default: `0` / Infinite retry)
 
 ## Build
 
@@ -70,7 +66,6 @@ The following files will be generated in the `build/` directory:
 
 - `resurrector.exe` (Core Process)
 - `resurrector-ui.exe` (UI Process)
-- `config.toml` (Configuration file - copied from `config.example.toml`)
 
 ## Usage
 

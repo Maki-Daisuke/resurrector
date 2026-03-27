@@ -21,7 +21,7 @@ var (
 )
 
 // ShowUI launches the UI process and sends the initial state from the reconciler.
-func ShowUI(reconciler *Reconciler) error {
+func ShowUI(reconciler *Reconciler, configPath string) error {
 	currentUIMu.Lock()
 	defer currentUIMu.Unlock()
 
@@ -35,7 +35,7 @@ func ShowUI(reconciler *Reconciler) error {
 	}
 	uiExe := filepath.Join(filepath.Dir(exePath), "resurrector-ui.exe")
 
-	cmd := exec.Command(uiExe)
+	cmd := exec.Command(uiExe, "-f", configPath)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return err

@@ -24,7 +24,7 @@ Resurrector treats `config.toml` as a **declarative desired-state specification*
 +------------------------------------------------------------------+
 |  Interactive Session (Windows Desktop)                           |
 |                                                                  |
-|                       config.toml                                |
+|            ~/.config/resurrector/config.toml                     |
 |                  (Single Source of Truth)                         |
 |                    ^                ^                             |
 |         (fsnotify) |                | (direct write)             |
@@ -51,9 +51,9 @@ To minimize system resource consumption, Resurrector consists of two independent
 
 ### 1. Core Process (`resurrector.exe`)
 
-- **Role**: Steady presence in the system tray. Watches `config.toml` for changes (read-only) and reconciles monitored processes to match the desired state.
+- **Role**: Steady presence in the system tray. Watches `config.toml` for changes (read-only) and reconciles monitored processes to match the desired state. By default it reads from `~/.config/resurrector/config.toml`, but accepts a `-f <path>` flag.
 - **Technology**: Go (Pure), `energye/systray`, `golang.org/x/sys/windows`, `github.com/shirou/gopsutil`, `github.com/fsnotify/fsnotify`
-- **Features**: Does not have a UI; it continues to operate extremely lightly. When "Settings" is clicked from the system tray, it launches the UI process as a child process. **Never writes to `config.toml`.**
+- **Features**: Does not have a UI; it continues to operate extremely lightly. When "Settings" is clicked from the system tray, it launches the UI process as a child process, passing `-f <path>` to it. **Never writes to `config.toml`.**
 - **Process Management**: Uses Windows Job Objects (`CreateJobObject`, `AssignProcessToJobObject`) to bind spawned child processes to its own lifecycle. This ensures that any command (even ones that spawn further sub-processes like `npm run start`) and its entire process tree are cleanly terminated when the core requests a stop or when the core process itself exits.
 
 ### 2. UI Process (`resurrector-ui.exe`)
@@ -64,9 +64,9 @@ To minimize system resource consumption, Resurrector consists of two independent
 
 ### Inter-Process Communication (IPC)
 
-Communication between the core and UI processes is **unidirectional** (core → UI) via standard I/O (stdio) using Go's standard `net/rpc/jsonrpc` package. The core pushes process state updates to the UI. The UI does **not** send commands back to the core — instead, it writes configuration changes directly to `config.toml`, and the core picks them up via fsnotify.
+Communication between the core and UI processes is **unidirectional** (core → UI) via standard I/O (stdio) using a synchronous, line-based JSON stream. The core pushes process state updates (`MonitorStatus` JSON objects) to the UI. The UI does **not** send commands back to the core — instead, it writes configuration changes directly to `config.toml`, and the core picks them up via fsnotify.
 
-This design keeps the core simple (read config, reconcile) and avoids bidirectional RPC complexity.
+This design keeps the core simple (read config, reconcile) and avoids bidirectional RPC and race condition complexities.
 
 ## Reconciliation Loop
 
@@ -233,8 +233,7 @@ Each monitored process entry runs through the following state machine:
 │   ├── app.go              # Bridge between Wails and frontend
 │   └── frontend/           # Svelte application (UI screens)
 ├── util/                   # Common utilities
-│   ├── config.go           # TOML configuration reading/writing
-│   └── stdioconn.go        # IPC via standard I/O
+│   └── config.go           # TOML configuration reading/writing
 ├── config.example.toml     # Sample configuration file
 └── package.json            # Build scripts (npm)
 ```
