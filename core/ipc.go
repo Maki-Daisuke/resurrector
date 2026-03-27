@@ -1,22 +1,18 @@
 package main
 
 import (
-	"net/rpc"
-	"net/rpc/jsonrpc"
+	"encoding/json"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sync"
-
-	"resurrector/util"
 )
 
-// UIProcess represents a running UI process and its RPC client.
+// UIProcess represents a running UI process and its JSON encoder.
 type UIProcess struct {
-	cmd    *exec.Cmd
-	client interface {
-		Go(serviceMethod string, args interface{}, reply interface{}, done chan *rpc.Call) *rpc.Call
-	}
+	cmd     *exec.Cmd
+	encoder *json.Encoder
 }
 
 var (
@@ -48,19 +44,18 @@ func ShowUI(reconciler *Reconciler) error {
 	if err != nil {
 		return err
 	}
+	_ = stdout // Ignore stdout since we don't read JSON-RPC responses anymore
 	cmd.Stderr = os.Stderr // pipe ui logs directly
 
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 
-	// Create JSON-RPC client over stdio
-	conn := &util.StdioConn{ReadCloser: stdout, WriteCloser: stdin}
-	client := jsonrpc.NewClient(conn)
+	encoder := json.NewEncoder(stdin)
 
 	ui := &UIProcess{
-		cmd:    cmd,
-		client: client,
+		cmd:     cmd,
+		encoder: encoder,
 	}
 	currentUI = ui
 
@@ -83,7 +78,7 @@ func ShowUI(reconciler *Reconciler) error {
 
 // SendState sends a state update to the UI process via JSON-RPC.
 func (ui *UIProcess) SendState(status MonitorStatus) {
-	if ui == nil || ui.client == nil {
+	if ui == nil || ui.encoder == nil {
 		return
 	}
 	msg := map[string]interface{}{
@@ -96,9 +91,8 @@ func (ui *UIProcess) SendState(status MonitorStatus) {
 		"restartCount": status.RestartCount,
 	}
 
-	// Send to UI as a notification using Go (asynchronous call)
-	var reply bool
-	ui.client.Go("UI.UpdateState", msg, &reply, nil)
+	log.Printf("[IPC] Sending UI.UpdateState: %q -> %s", status.Name, status.State)
+	ui.encoder.Encode(msg)
 }
 
 // GetCurrentUI returns the current UI process, or nil if not running.
