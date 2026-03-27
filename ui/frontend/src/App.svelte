@@ -1,7 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { EventsOn } from "../wailsjs/runtime/runtime";
-  import { Table, TableBody, TableBodyCell, TableBodyRow, TableHead, TableHeadCell, Badge } from "flowbite-svelte";
+  import AgGridSvelte from "ag-grid-svelte";
+  import type { ColDef } from "ag-grid-community";
+  import "ag-grid-community/styles/ag-grid.css";
+  import "ag-grid-community/styles/ag-theme-alpine.css";
 
   type AppStateInfo = {
     name: string;
@@ -14,8 +17,6 @@
   };
 
   let apps: Record<string, AppStateInfo> = {};
-  let sortKey: keyof AppStateInfo = 'name';
-  let sortAsc = true;
 
   onMount(() => {
     EventsOn("app_state_update", (dataStr: string) => {
@@ -34,82 +35,66 @@
     });
   });
 
-  function handleSort(key: keyof AppStateInfo) {
-    if (sortKey === key) {
-      sortAsc = !sortAsc;
-    } else {
-      sortKey = key;
-      sortAsc = true;
+  $: appList = Object.values(apps);
+
+  function stateRenderer(params: any) {
+    if (!params.value) return '';
+    let color = 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
+    const state = params.value.toLowerCase();
+    switch (state) {
+      case 'running': color = 'bg-green-100 text-green-800 dark:bg-green-200 dark:text-green-900'; break;
+      case 'stopped': color = 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'; break;
+      case 'retrying': color = 'bg-yellow-100 text-yellow-800 dark:bg-yellow-200 dark:text-yellow-900'; break;
+      case 'failed': color = 'bg-red-100 text-red-800 dark:bg-red-200 dark:text-red-900'; break;
     }
+    return `<span class="px-2.5 py-0.5 rounded text-xs font-semibold ${color}">${params.value}</span>`;
   }
 
-  $: appList = Object.values(apps).sort((a, b) => {
-    let valA = a[sortKey];
-    let valB = b[sortKey];
-    if (valA < valB) return sortAsc ? -1 : 1;
-    if (valA > valB) return sortAsc ? 1 : -1;
-    return 0;
-  });
-
-  function getStateColor(state: string) {
-    switch (state.toLowerCase()) {
-      case 'running': return 'green';
-      case 'stopped': return 'dark';
-      case 'retrying': return 'yellow';
-      case 'failed': return 'red';
-      default: return 'dark';
-    }
+  function enabledRenderer(params: any) {
+    if (params.value === undefined) return '';
+    const isEnabled = params.value;
+    const color = isEnabled ? 'bg-blue-100 text-blue-800 dark:bg-blue-200 dark:text-blue-900' : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
+    const text = isEnabled ? 'Enabled' : 'Disabled';
+    return `<span class="px-2.5 py-0.5 rounded text-xs font-semibold ${color}">${text}</span>`;
   }
+
+  function commandRenderer(params: any) {
+    const data = params.data;
+    if (!data) return '';
+    return [data.command, ...(data.args || [])].join(' ');
+  }
+
+  let columnDefs: ColDef<AppStateInfo>[] = [
+    { field: 'name', headerName: 'App Name', flex: 2, minWidth: 150 },
+    { field: 'pid', headerName: 'PID', width: 100, valueFormatter: (p: any) => p.value > 0 ? p.value : '-' },
+    { field: 'state', headerName: 'State', width: 120, cellRenderer: stateRenderer },
+    { field: 'enabled', headerName: 'Enabled/Disabled', width: 150, cellRenderer: enabledRenderer },
+    { field: 'command', headerName: 'Command', flex: 3, minWidth: 200, valueGetter: commandRenderer }
+  ];
+
+  const defaultColDef: ColDef = {
+    resizable: true,
+    sortable: true
+  };
 </script>
 
-<main class="p-6 h-screen w-full flex flex-col items-center">
-  <div class="w-full max-w-6xl shadow-2xl sm:rounded-lg mt-8">
-    <Table hoverable={true} class="overflow-hidden sm:rounded-lg">
-      <TableHead class="bg-gray-100 dark:bg-gray-800">
-        <TableHeadCell on:click={() => handleSort('name')} class="cursor-pointer select-none whitespace-nowrap">
-          App Name {sortKey === 'name' ? (sortAsc ? '▲' : '▼') : ''}
-        </TableHeadCell>
-        <TableHeadCell on:click={() => handleSort('pid')} class="cursor-pointer select-none">
-          PID {sortKey === 'pid' ? (sortAsc ? '▲' : '▼') : ''}
-        </TableHeadCell>
-        <TableHeadCell on:click={() => handleSort('state')} class="cursor-pointer select-none">
-          State {sortKey === 'state' ? (sortAsc ? '▲' : '▼') : ''}
-        </TableHeadCell>
-        <TableHeadCell on:click={() => handleSort('enabled')} class="cursor-pointer select-none">
-          Enabled/Disabled {sortKey === 'enabled' ? (sortAsc ? '▲' : '▼') : ''}
-        </TableHeadCell>
-        <TableHeadCell on:click={() => handleSort('command')} class="cursor-pointer select-none">
-          Command {sortKey === 'command' ? (sortAsc ? '▲' : '▼') : ''}
-        </TableHeadCell>
-      </TableHead>
-      <TableBody tableBodyClass="divide-y">
-        {#each appList as app}
-          <TableBodyRow>
-            <TableBodyCell class="font-medium text-gray-900 dark:text-white">
-              {app.name}
-            </TableBodyCell>
-            <TableBodyCell class="font-mono">
-              {app.pid > 0 ? app.pid : '-'}
-            </TableBodyCell>
-            <TableBodyCell>
-              <Badge color={getStateColor(app.state)}>{app.state}</Badge>
-            </TableBodyCell>
-            <TableBodyCell>
-              <Badge color={app.enabled ? 'blue' : 'dark'}>{app.enabled ? 'Enabled' : 'Disabled'}</Badge>
-            </TableBodyCell>
-            <TableBodyCell class="font-mono text-sm max-w-xs truncate" title={[app.command, ...(app.args || [])].join(' ')}>
-              {[app.command, ...(app.args || [])].join(' ')}
-            </TableBodyCell>
-          </TableBodyRow>
-        {/each}
-        {#if appList.length === 0}
-          <TableBodyRow>
-            <TableBodyCell colspan="5" class="text-center py-12 text-gray-500">
-              Waiting for process connection...
-            </TableBodyCell>
-          </TableBodyRow>
-        {/if}
-      </TableBody>
-    </Table>
+<main class="p-6 h-screen w-full flex flex-col items-center box-border bg-gray-50 dark:bg-slate-900">
+  <div class="w-full flex-1 shadow-2xl sm:rounded-lg flex flex-col overflow-hidden bg-white dark:bg-gray-800">
+    <div class="ag-theme-alpine w-full h-full flex-grow">
+      <AgGridSvelte
+        rowData={appList}
+        {columnDefs}
+        {defaultColDef}
+        rowSelection="single"
+        overlayNoRowsTemplate="<span class='text-gray-500 font-medium'>Waiting for process connection...</span>"
+      />
+    </div>
   </div>
 </main>
+
+<style>
+  :global(.ag-theme-alpine) {
+    height: 100% !important;
+    width: 100% !important;
+  }
+</style>

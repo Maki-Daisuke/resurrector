@@ -1,9 +1,6 @@
-const flowbitePlugin = require('flowbite/plugin');
-
 module.exports = {
   content: [
-    "./src/**/*.{html,js,svelte,ts}",
-    "./node_modules/flowbite-svelte/**/*.{html,js,svelte,ts}"
+    "./src/**/*.{html,js,svelte,ts}"
   ],
   theme: {
     extend: {
@@ -23,8 +20,6 @@ module.exports = {
       }
     }
   },
-  plugins: [
-    flowbitePlugin
-  ],
+  plugins: [],
   darkMode: 'class'
 }
