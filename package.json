@@ -1,6 +1,7 @@
 {
   "name": "resurrector",
   "version": "0.1.0",
+  "description": "A robust, lightweight process monitor and auto-restart tool for Windows. Built with Go and Wails/Svelte.",
   "private": true,
   "scripts": {
     "prebuild": "shx mkdir -p build",

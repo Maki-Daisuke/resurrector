@@ -1,5 +1,7 @@
 # Resurrector
 
+> **Never let your critical Windows applications stay dead.**
+
 Resurrector is a lightweight process monitoring and auto-restart tool for Windows.
 
 It is designed to ensure that critical applications remain running within the **Interactive Session** (the desktop session where you are logged in), effortlessly resurrecting (restarting) them if they crash or terminate unexpectedly.

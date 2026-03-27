@@ -2,6 +2,7 @@
   "name": "frontend",
   "private": true,
   "version": "0.0.0",
+  "description": "Frontend for Resurrector process monitor, built with Svelte and Vite.",
   "type": "module",
   "scripts": {
     "dev": "vite",
