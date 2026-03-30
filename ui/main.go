@@ -3,7 +3,6 @@ package main
 import (
 	"embed"
 	"log"
-	"os"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/logger"
@@ -17,17 +16,19 @@ var assets embed.FS
 // Custom logger writing to stderr
 type stderrLogger struct{}
 
-func (l *stderrLogger) Print(message string)   { os.Stderr.WriteString(message + "\n") }
-func (l *stderrLogger) Trace(message string)   { os.Stderr.WriteString("[TRACE] " + message + "\n") }
-func (l *stderrLogger) Debug(message string)   { os.Stderr.WriteString("[DEBUG] " + message + "\n") }
-func (l *stderrLogger) Info(message string)    { os.Stderr.WriteString("[INFO] " + message + "\n") }
-func (l *stderrLogger) Warning(message string) { os.Stderr.WriteString("[WARN] " + message + "\n") }
-func (l *stderrLogger) Error(message string)   { os.Stderr.WriteString("[ERROR] " + message + "\n") }
-func (l *stderrLogger) Fatal(message string)   { os.Stderr.WriteString("[FATAL] " + message + "\n") }
+func (l *stderrLogger) Print(message string)   { log.Print(message) }
+func (l *stderrLogger) Trace(message string)   { log.Print("[TRACE] " + message) }
+func (l *stderrLogger) Debug(message string)   { log.Print("[DEBUG] " + message) }
+func (l *stderrLogger) Info(message string)    { log.Print("[INFO] " + message) }
+func (l *stderrLogger) Warning(message string) { log.Print("[WARN] " + message) }
+func (l *stderrLogger) Error(message string)   { log.Print("[ERROR] " + message) }
+func (l *stderrLogger) Fatal(message string)   { log.Print("[FATAL] " + message) }
 
 func main() {
+	configPath := parseFlags()
+
 	// Create an instance of the app structure
-	app := NewApp()
+	app := NewApp(configPath)
 
 	// Create application with options
 	err := wails.Run(&options.App{
@@ -51,3 +52,4 @@ func main() {
 		log.Fatal(err)
 	}
 }
+

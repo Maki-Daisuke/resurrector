@@ -3,7 +3,9 @@ package main
 import (
 	"bufio"
 	"context"
+	"flag"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -11,15 +13,14 @@ import (
 
 // App struct
 type App struct {
-	ctx context.Context
+	ctx        context.Context
+	configPath string
 }
 
 // NewApp creates a new App application struct
-func NewApp() *App {
-	return &App{}
+func NewApp(configPath string) *App {
+	return &App{configPath: configPath}
 }
-
-// Removed UI RPC struct because we are standardizing on JSON STDIN stream
 
 // startup is called when the app starts. The context is saved
 // so we can call the runtime methods
@@ -39,8 +40,25 @@ func (a *App) domReady(ctx context.Context) {
 		for scanner.Scan() {
 			runtime.EventsEmit(ctx, "app_state_update", scanner.Text())
 		}
-		
+
 		// Core process exited, Stdin pipe closed -> shut down UI
 		runtime.Quit(ctx)
 	}()
+}
+
+// parseFlags parses command-line flags and returns the config file path.
+// It is called before wails.Run so the App struct can be initialised with the path.
+func parseFlags() string {
+	var configPath string
+	flag.StringVar(&configPath, "f", "", "Path to config.toml (passed by the core process)")
+	flag.Parse()
+    
+	if configPath == "" {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			configPath = filepath.Join(home, ".config", "resurrector", "config.toml")
+		}
+	}
+
+	return configPath
 }

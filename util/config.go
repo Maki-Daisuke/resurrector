@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"unicode"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -75,4 +77,142 @@ func LoadConfig(path string) (map[string]*App, error) {
 	}
 
 	return raw, nil
+}
+
+// SaveConfig writes the given apps map to the config file at path using an
+// atomic write (temp file -> sync -> close -> rename) to prevent partial writes.
+// The Name field on each App is ignored; the map key is used as the TOML section name.
+func SaveConfig(path string, apps map[string]*App) error {
+	// Build a raw map[string]*App without the Name field to serialize cleanly.
+	// go-toml/v2 respects `toml:"-"` so Name is already excluded.
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".resurrector-config-*.toml")
+	if err != nil {
+		return fmt.Errorf("creating temp file for atomic write: %w", err)
+	}
+	tmpPath := tmp.Name()
+
+	// Cleanup on failure
+	ok := false
+	defer func() {
+		if !ok {
+			tmp.Close()
+			os.Remove(tmpPath)
+		}
+	}()
+
+	b, err := toml.Marshal(apps)
+	if err != nil {
+		return fmt.Errorf("marshaling config to TOML: %w", err)
+	}
+
+	if _, err := tmp.Write(b); err != nil {
+		return fmt.Errorf("writing temp config file: %w", err)
+	}
+
+	// Flush OS buffers before rename to guarantee durability.
+	if err := tmp.Sync(); err != nil {
+		return fmt.Errorf("syncing temp config file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("closing temp config file: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("renaming temp config file to %s: %w", path, err)
+	}
+
+	ok = true
+	return nil
+}
+
+// ParseArgs splits a shell-like argument string into a slice of strings.
+// It respects single-quoted and double-quoted strings, and backslash escapes
+// inside double-quoted strings.
+//
+// Examples:
+//
+//	`-v --debug`            → ["-v", "--debug"]
+//	`-c "hello world"`      → ["-c", "hello world"]
+//	`-c 'it'\''s fine'`    → ["-c", "it's fine"]
+func ParseArgs(s string) ([]string, error) {
+	var args []string
+	var current strings.Builder
+	inSingle := false
+	inDouble := false
+	escaped := false
+
+	for _, r := range s {
+		switch {
+		case escaped:
+			// Inside double-quote escape: only certain chars are special
+			current.WriteRune(r)
+			escaped = false
+
+		case r == '\\' && inDouble:
+			escaped = true
+
+		case r == '\'' && !inDouble:
+			inSingle = !inSingle
+
+		case r == '"' && !inSingle:
+			inDouble = !inDouble
+
+		case unicode.IsSpace(r) && !inSingle && !inDouble:
+			if current.Len() > 0 {
+				args = append(args, current.String())
+				current.Reset()
+			}
+
+		default:
+			current.WriteRune(r)
+		}
+	}
+
+	if inSingle {
+		return nil, fmt.Errorf("unterminated single quote in args string")
+	}
+	if inDouble {
+		return nil, fmt.Errorf("unterminated double quote in args string")
+	}
+	if current.Len() > 0 {
+		args = append(args, current.String())
+	}
+	return args, nil
+}
+
+// FormatArgs joins a slice of strings into a single shell-safe string for display.
+// Arguments that contain spaces or special shell characters are double-quoted,
+// and any internal double-quotes are backslash-escaped.
+func FormatArgs(args []string) string {
+	parts := make([]string, 0, len(args))
+	for _, a := range args {
+		parts = append(parts, shellQuote(a))
+	}
+	return strings.Join(parts, " ")
+}
+
+// shellQuote quotes a single argument for safe display in a shell-like text box.
+func shellQuote(s string) string {
+	needsQuote := false
+	for _, r := range s {
+		if unicode.IsSpace(r) || strings.ContainsRune(`"'\\&|;<>()$`, r) {
+			needsQuote = true
+			break
+		}
+	}
+	if !needsQuote && s != "" {
+		return s
+	}
+	// Double-quote the argument, escaping any internal double-quotes and backslashes.
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range s {
+		if r == '"' || r == '\\' {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	b.WriteByte('"')
+	return b.String()
 }
