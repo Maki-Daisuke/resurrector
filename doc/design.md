@@ -58,15 +58,22 @@ To minimize system resource consumption, Resurrector consists of two independent
 
 ### 2. UI Process (`resurrector-ui.exe`)
 
-- **Role**: Configuration screen for the user, real-time display of monitoring status. Edits `config.toml` directly.
+- **Role**: Configuration screen for the user, real-time display of monitoring status. Provides a management interface to Create, Read, Update, and Delete (CRUD) entries in `config.toml` via a Wails bridge.
 - **Technology**: Go + Wails + Svelte (TypeScript)
-- **Features**: Uses a custom Wails logger that writes to `STDERR`, leaving `STDOUT` and `STDIN` exclusively for JSON-RPC messaging (IPC). The UI **writes directly to `config.toml`** when the user makes configuration changes — the core detects these changes via fsnotify and reconciles automatically. The process terminates when the window is closed.
+- **Features**: Uses a custom Wails logger that writes to `STDERR`, leaving `STDOUT` and `STDIN` exclusively for JSON-RPC messaging (IPC). The UI **writes directly to `config.toml`** (using atomic writes) when the user makes configuration changes — the core detects these changes via fsnotify and reconciles automatically.
+- **Config Bridge**: Implements a `config_bridge.go` that exposes an `AppConfig` DTO (Data Transfer Object) to the frontend. This DTO handles:
+  - Field name mapping (e.g., camelCase for JSON/TypeScript, snake_case for TOML).
+  - Argument formatting: Converting `[]string` from TOML into a single shell-like `string` for user-friendly editing, and parsing it back using `util.ParseArgs`.
+- **Termination**: The process terminates when the window is closed.
 
 ### Inter-Process Communication (IPC)
 
-Communication between the core and UI processes is **unidirectional** (core → UI) via standard I/O (stdio) using a synchronous, line-based JSON stream. The core pushes process state updates (`MonitorStatus` JSON objects) to the UI. The UI does **not** send commands back to the core — instead, it writes configuration changes directly to `config.toml`, and the core picks them up via fsnotify.
+Communication between the core and UI processes follows two distinct paths:
 
-This design keeps the core simple (read config, reconcile) and avoids bidirectional RPC and race condition complexities.
+1. **Status Updates (Core → UI)**: **Unidirectional** via standard I/O (stdio) using a synchronous, line-based JSON stream. The core pushes process state updates (`MonitorStatus` JSON objects) to the UI.
+2. **Configuration Changes (UI → Core via File)**: The UI does **not** send RPC commands back to the core to change state. Instead, it writes changes directly to `config.toml` using atomic operations (`util.SaveConfig`). The core picks up these changes via its `fsnotify` loop.
+
+This design keeps the core simple (read config, reconcile) and preserves the "config.toml as the Single Source of Truth" principle.
 
 ## Reconciliation Loop
 
@@ -129,12 +136,15 @@ for each entry in current:
 
 ### Comparison Logic
 
-To determine whether an entry's config has been "modified" (requiring restart), the reconciler compares all fields that affect runtime behavior:
+To determine whether an entry's config has been "modified" (requiring restart), the reconciler compares all fields that affect runtime behavior. Note that parameters undergo **validation and default application** (`util.ValidateAndApplyDefaults`) before comparison:
 
 - `command`, `args`, `cwd` — The process identity
 - `hide_window` — Requires restart to change window visibility
 - `restart_delay_sec`, `healthy_timeout_sec`, `max_retries` — Can be updated in-place (hot-reload) without restarting the monitored process
 
+> [!TIP]
+> **Automated Resolution**: If `command` is just a binary name (e.g., `npm`), it is resolved to an absolute path. If `cwd` is omitted, it defaults to the directory of the `command`. This resolution happens during the config load phase, ensuring the reconciler always works with canonical paths.
+>
 > [!NOTE]
 > Fields like `restart_delay_sec`, `healthy_timeout_sec`, and `max_retries` are **monitoring parameters**, not process identity fields. Changing them does NOT require stopping and restarting the monitored process. They can be hot-reloaded by updating the in-memory config reference.
 
@@ -230,10 +240,11 @@ Each monitored process entry runs through the following state machine:
 │   └── ipc.go              # UI process communication control
 ├── ui/                     # UI process (Wails)
 │   ├── main.go             # Wails entry point
-│   ├── app.go              # Bridge between Wails and frontend
+│   ├── app.go              # Wails lifecycle and IPC setup
+│   ├── config_bridge.go    # Bridge for CRUD operations on config.toml
 │   └── frontend/           # Svelte application (UI screens)
 ├── util/                   # Common utilities
-│   └── config.go           # TOML configuration reading/writing
+│   └── config.go           # TOML parsing, Atomic writes, Shell-like arg parsing
 ├── config.example.toml     # Sample configuration file
 └── package.json            # Build scripts (npm)
 ```
