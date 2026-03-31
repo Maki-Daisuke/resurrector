@@ -98,6 +98,7 @@
   let confirmDelete = false;
   let isSaving = false;
   let errorMessage = "";
+  let isCreateMode = false;
 
   let editingOriginalName = "";
   let editForm: main.AppConfig = makeEmptyForm();
@@ -109,10 +110,10 @@
       command: "",
       args: "",
       cwd: "",
-      restartDelaySec: 2,
-      healthyTimeoutSec: 5,
+      restartDelaySec: 0,
+      healthyTimeoutSec: 0,
       hideWindow: false,
-      maxRetries: 3,
+      maxRetries: 0,
     } as main.AppConfig;
   }
 
@@ -120,6 +121,7 @@
     errorMessage = "";
     confirmDelete = false;
     isSaving = false;
+    isCreateMode = false;
     try {
       const configs = await GetFullConfig();
       const cfg = configs[appName];
@@ -139,6 +141,16 @@
     }
   }
 
+  function openCreateDialog() {
+    errorMessage = "";
+    confirmDelete = false;
+    isSaving = false;
+    isCreateMode = true;
+    editingOriginalName = "";
+    editForm = makeEmptyForm();
+    dialogOpen = true;
+  }
+
   function handleRowDoubleClick(event: any) {
     // Ag-grid event data is typically in event.data
     const name: string = event?.data?.name || event?.detail?.data?.name || (event?.node && event.node.data && event.node.data.name);
@@ -154,6 +166,7 @@
     dialogOpen = false;
     confirmDelete = false;
     errorMessage = "";
+    isCreateMode = false;
   }
 
   async function handleSave() {
@@ -219,6 +232,9 @@
         overlayNoRowsTemplate="<span class='text-gray-500 font-medium'>Waiting for process connection...</span>"
       />
     </div>
+    <div class="toolbar">
+      <button class="btn btn-primary" type="button" on:click={openCreateDialog}>Add</button>
+    </div>
   </div>
 </main>
 
@@ -232,10 +248,9 @@
   <!-- Modal -->
   <div class="dialog-panel" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
     <div class="dialog-header">
-      <h2 id="dialog-title" class="dialog-title">Edit App Configuration</h2>
-      <p class="dialog-subtitle">
-        Double arrows below to adjust integer values. All changes are saved atomically to <code>config.toml</code>.
-      </p>
+      <h2 id="dialog-title" class="dialog-title">
+        {isCreateMode ? "Add App Configuration" : "Edit App Configuration"}
+      </h2>
     </div>
 
     {#if confirmDelete}
@@ -292,7 +307,10 @@
         <!-- Numeric fields row -->
         <div class="field-row">
           <div class="field">
-            <label class="field-label" for="field-restart-delay">Restart Delay (s)</label>
+            <label class="field-label" for="field-restart-delay">
+              Restart Delay (s)
+              <span class="field-hint">Default: 0</span>
+            </label>
             <div class="number-input-wrap">
               <input
                 id="field-restart-delay"
@@ -304,7 +322,10 @@
             </div>
           </div>
           <div class="field">
-            <label class="field-label" for="field-healthy-timeout">Healthy Timeout (s)</label>
+            <label class="field-label" for="field-healthy-timeout">
+              Healthy Timeout (s)
+              <span class="field-hint">0 = unlimited</span>
+            </label>
             <div class="number-input-wrap">
               <input
                 id="field-healthy-timeout"
@@ -316,7 +337,10 @@
             </div>
           </div>
           <div class="field">
-            <label class="field-label" for="field-max-retries">Max Retries</label>
+            <label class="field-label" for="field-max-retries">
+              Max Retries
+              <span class="field-hint">0 = unlimited</span>
+            </label>
             <div class="number-input-wrap">
               <input
                 id="field-max-retries"
@@ -348,9 +372,11 @@
 
         <!-- Action Buttons -->
         <div class="dialog-actions">
-          <button type="button" class="btn btn-danger-ghost" on:click={handleDeleteClick} disabled={isSaving}>
-            Delete
-          </button>
+          {#if !isCreateMode}
+            <button type="button" class="btn btn-danger-ghost" on:click={handleDeleteClick} disabled={isSaving}>
+              Delete
+            </button>
+          {/if}
           <div class="dialog-actions-right">
             <button type="button" class="btn btn-ghost" on:click={closeDialog} disabled={isSaving}>
               Cancel
@@ -376,6 +402,13 @@
     width: 100% !important;
   }
 
+  .toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 12px;
+    padding: 0 12px 12px;
+  }
+
   /* ── Backdrop ───────────────────────────────────────────────────────────── */
   .dialog-backdrop {
     position: fixed;
@@ -393,7 +426,7 @@
     left: 50%;
     translate: -50% -50%;
     z-index: 50;
-    width: min(560px, calc(100vw - 2rem));
+    width: min(760px, calc(100vw - 2rem));
     max-height: calc(100vh - 4rem);
     overflow-y: auto;
     border-radius: 16px;
@@ -567,10 +600,13 @@
   /* ── Buttons ────────────────────────────────────────────────────────────── */
   .dialog-actions {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-end;
     align-items: center;
     padding-top: 8px;
     gap: 8px;
+  }
+  .dialog-actions > .btn-danger-ghost {
+    margin-right: auto;
   }
   .dialog-actions-right { display: flex; gap: 8px; }
 

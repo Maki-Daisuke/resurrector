@@ -34,7 +34,7 @@ func main() {
 	err := wails.Run(&options.App{
 		Title:  "Resurrector",
 		Width:  900,
-		Height: 600,
+		Height: 700,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
