@@ -170,18 +170,33 @@
   }
 
   async function handleSave() {
-    if (!editForm.name.trim()) {
+    const targetName = editForm.name.trim();
+    const targetCommand = editForm.command.trim();
+
+    if (!targetName) {
       errorMessage = "App Name is required.";
       return;
     }
-    if (!editForm.command.trim()) {
+    if (!targetCommand) {
       errorMessage = "Command is required.";
       return;
     }
     isSaving = true;
     errorMessage = "";
     try {
-      await UpdateAppConfig(editingOriginalName, editForm);
+      if (isCreateMode) {
+        const configs = await GetFullConfig();
+        if (configs[targetName]) {
+          errorMessage = `App "${targetName}" already exists.`;
+          return;
+        }
+      }
+
+      await UpdateAppConfig(editingOriginalName, {
+        ...editForm,
+        name: targetName,
+        command: targetCommand,
+      });
       closeDialog();
     } catch (e: any) {
       errorMessage = `Save failed: ${e}`;
@@ -345,9 +360,9 @@
               <input
                 id="field-max-retries"
                 class="field-input field-number"
-                type="number" min="-1" max="999"
+                type="number" min="0" max="999"
                 bind:value={editForm.maxRetries}
-                on:change={() => editForm.maxRetries = clampInt(editForm.maxRetries, -1, 999)}
+                on:change={() => editForm.maxRetries = clampInt(editForm.maxRetries, 0, 999)}
               />
             </div>
           </div>
