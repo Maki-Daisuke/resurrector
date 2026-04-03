@@ -69,8 +69,29 @@ func LoadConfig(path string) (map[string]*App, error) {
 		return nil, fmt.Errorf("parsing TOML config: %w", err)
 	}
 
+	// Track presence of optional fields so we can apply defaults without
+	// changing the meaning of explicit zero values.
+	//
+	// Example: max_retries omitted => default infinite retry (-1).
+	//          max_retries = 0     => explicit "no retry".
+	var rawTables map[string]map[string]any
+	if err := toml.Unmarshal(b, &rawTables); err != nil {
+		if de, ok := err.(*toml.DecodeError); ok {
+			return nil, fmt.Errorf("parsing TOML config:\n%s", de.String())
+		}
+		return nil, fmt.Errorf("parsing TOML config: %w", err)
+	}
+
 	for name, app := range raw {
 		app.Name = name
+		if table, ok := rawTables[name]; ok {
+			if _, ok := table["max_retries"]; !ok {
+				// Default: infinite retries when omitted.
+				app.MaxRetries = -1
+			}
+		} else {
+			panic("Should not happen")
+		}
 		if err := app.ValidateAndApplyDefaults(); err != nil {
 			return nil, fmt.Errorf("invalid config for app %q: %w", name, err)
 		}

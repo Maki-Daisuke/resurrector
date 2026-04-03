@@ -113,7 +113,8 @@
       restartDelaySec: 0,
       healthyTimeoutSec: 0,
       hideWindow: false,
-      maxRetries: 0,
+      // Default UX: treat "unlimited" as negative (spec: <0 = infinite retry).
+      maxRetries: -1,
     } as main.AppConfig;
   }
 
@@ -354,15 +355,15 @@
           <div class="field">
             <label class="field-label" for="field-max-retries">
               Max Retries
-              <span class="field-hint">0 = unlimited</span>
+              <span class="field-hint">0 = no retry, &lt;0 = infinite</span>
             </label>
             <div class="number-input-wrap">
               <input
                 id="field-max-retries"
                 class="field-input field-number"
-                type="number" min="0" max="999"
+                type="number" min="-1" max="999"
                 bind:value={editForm.maxRetries}
-                on:change={() => editForm.maxRetries = clampInt(editForm.maxRetries, 0, 999)}
+                on:change={() => editForm.maxRetries = clampInt(editForm.maxRetries, -1, 999)}
               />
             </div>
           </div>

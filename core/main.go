@@ -27,7 +27,7 @@ cwd = ""
 restart_delay_sec = 2
 healthy_timeout_sec = 5
 hide_window = false
-max_retries = 3
+max_retries = -1
 `)
 
 var (

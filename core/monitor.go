@@ -191,7 +191,7 @@ func (m *Monitor) monitorLoop() {
 
 			m.mu.Lock()
 			m.restartCount++
-			if cfg.MaxRetries > 0 && m.restartCount > cfg.MaxRetries {
+			if cfg.MaxRetries >= 0 && m.restartCount > cfg.MaxRetries {
 				m.setState(StateFailed)
 				m.mu.Unlock()
 				return
@@ -248,7 +248,7 @@ func (m *Monitor) monitorLoop() {
 			m.restartCount++
 		}
 
-		if m.config.MaxRetries > 0 && m.restartCount > m.config.MaxRetries {
+		if m.config.MaxRetries >= 0 && m.restartCount > m.config.MaxRetries {
 			m.setState(StateFailed)
 			m.mu.Unlock()
 			return
