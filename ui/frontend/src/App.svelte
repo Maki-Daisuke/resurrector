@@ -113,7 +113,6 @@
       restartDelaySec: 0,
       healthyTimeoutSec: 0,
       hideWindow: false,
-      // Default UX: treat "unlimited" as negative (spec: <0 = infinite retry).
       maxRetries: -1,
     } as main.AppConfig;
   }
@@ -340,7 +339,7 @@
           <div class="field">
             <label class="field-label" for="field-healthy-timeout">
               Healthy Timeout (s)
-              <span class="field-hint">0 = unlimited</span>
+              <span class="field-hint">0 = no uptime reset</span>
             </label>
             <div class="number-input-wrap">
               <input

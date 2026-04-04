@@ -242,7 +242,9 @@ func (m *Monitor) monitorLoop() {
 		duration := time.Since(startTime)
 		healthyTimeout := time.Duration(m.config.HealthyTimeoutSec) * time.Second
 
-		if duration >= healthyTimeout {
+		// healthy_timeout_sec = 0 means "do not reset the counter on uptime" — the
+		// counter always increments on exit so max_retries remains meaningful.
+		if healthyTimeout > 0 && duration >= healthyTimeout {
 			m.restartCount = 0
 		} else {
 			m.restartCount++

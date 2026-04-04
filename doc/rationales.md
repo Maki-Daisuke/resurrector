@@ -63,7 +63,7 @@ Since every unintentional exit triggers a restart, there is a risk of an infinit
 
 The `healthy_timeout_sec` and `max_retries` parameters exist solely to address this:
 
-- **`healthy_timeout_sec`**: Defines the minimum uptime (in seconds) for a run to be considered "stable." If the process runs for at least this long before exiting, the restart counter resets to 0. If it exits sooner, the counter increments.
+- **`healthy_timeout_sec`**: Defines the minimum uptime (in seconds) for a run to be considered "stable." If the process runs for at least this long before exiting, the restart counter resets to 0. If it exits sooner, the counter increments. A value of `0` disables the uptime-based reset: the counter increments on every exit so `max_retries` remains meaningful with the defaults.
 - **`max_retries`**: The maximum number of consecutive "unstable" restarts before Resurrector gives up and marks the app as `Failed`. A negative value means infinite retries (never give up).
 
 Together, they form a **crash loop breaker**: rapid repeated crashes are detected and eventually stopped, while a process that runs for a reasonable period and then crashes is given a fresh set of retries.

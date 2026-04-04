@@ -56,7 +56,7 @@ enabled = false
 - `hide_window` (Boolean): If `true`, launches the process in the background (hidden window). (Default: `false`)
 - `restart_delay_sec` (Integer): The wait time (seconds) before attempting a restart after detecting a process termination. (Default: `0`)
 - `max_retries` (Integer): Retry count limit for a crashing app. `0` means no retry; negative values mean infinite retry. (Default: `-1` / Infinite retry)
-- `healthy_timeout_sec` (Integer): If the process continues to run stably for this many seconds after a restart, the retry count is reset to 0. (Default: `0` / Infinite retry)
+- `healthy_timeout_sec` (Integer): If the process runs for at least this many seconds before exiting, the restart counter is reset to 0. `0` disables that reset (the counter increments on every exit). (Default: `0`)
 
 ## Build
 
