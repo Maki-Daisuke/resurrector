@@ -79,6 +79,28 @@ func main() {
 	flag.StringVar(&configFlag, "f", "", "Path to config.toml")
 	flag.Parse()
 
+	// Allow only one core (tray) process. We open a session-local named mutex; the
+	// first run creates it, a second run gets ERROR_ALREADY_EXISTS and exits here
+	// so we never load config or start the tray twice.
+	mutexName, err := windows.UTF16PtrFromString(`Local\Resurrector-core-6d3fe7b9-a7fc-48e8-bc7a-66d205c03b0d`)
+	if err != nil {
+		showErrorDialog("Resurrector - Error", fmt.Sprintf("Internal error (mutex name):\n\n%v", err))
+		os.Exit(1)
+	}
+	instanceMutex, err := windows.CreateMutex(nil, false, mutexName)
+	if err != nil {
+		if err == windows.ERROR_ALREADY_EXISTS {
+			showErrorDialog(
+				"Resurrector",
+				"Another copy of Resurrector is already running.\n\nOnly one core instance can run at a time.",
+			)
+			os.Exit(1)
+		}
+		showErrorDialog("Resurrector - Error", fmt.Sprintf("Failed to create single-instance lock:\n\n%v", err))
+		os.Exit(1)
+	}
+	defer windows.CloseHandle(instanceMutex)
+
 	configPath, err := resolveConfigPath(configFlag)
 	if err != nil {
 		showErrorDialog("Resurrector - Error", fmt.Sprintf("Failed to resolve config path:\n\n%v", err))
