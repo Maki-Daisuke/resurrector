@@ -1,7 +1,7 @@
 package main
 
 import (
-	"log"
+	"log/slog"
 	"sort"
 	"sync"
 
@@ -53,13 +53,23 @@ func (r *Reconciler) Reconcile(desired map[string]*util.App) {
 		if !exists {
 			// New entry — create monitor
 			if desiredCfg.Enabled {
-				log.Printf("[Reconciler] START %q (new entry)", name)
+				slog.Info("reconcile: start monitor",
+					slog.String("component", "reconciler"),
+					slog.String("action", "START"),
+					slog.String("app", name),
+					slog.String("reason", "new entry"),
+				)
 				mon := NewMonitor(*desiredCfg, r.onStateChange)
 				r.monitors[name] = mon
 				mon.Start()
 			} else {
 				// New entry but disabled — just track it
-				log.Printf("[Reconciler] TRACK %q (new entry, disabled)", name)
+				slog.Info("reconcile: track disabled entry",
+					slog.String("component", "reconciler"),
+					slog.String("action", "TRACK"),
+					slog.String("app", name),
+					slog.String("reason", "new entry, disabled"),
+				)
 				mon := NewMonitor(*desiredCfg, r.onStateChange)
 				r.monitors[name] = mon
 				// Emit Stopped state for the UI
@@ -75,7 +85,12 @@ func (r *Reconciler) Reconcile(desired map[string]*util.App) {
 		// Check enabled state transitions
 		if currentCfg.Enabled && !desiredCfg.Enabled {
 			// Disabled — update config first so Stop()'s state notification reflects Enabled=false
-			log.Printf("[Reconciler] STOP %q (disabled)", name)
+			slog.Info("reconcile: stop monitor",
+				slog.String("component", "reconciler"),
+				slog.String("action", "STOP"),
+				slog.String("app", name),
+				slog.String("reason", "disabled"),
+			)
 			existing.SetConfig(*desiredCfg)
 			existing.Stop()
 			continue
@@ -83,7 +98,12 @@ func (r *Reconciler) Reconcile(desired map[string]*util.App) {
 
 		if !currentCfg.Enabled && desiredCfg.Enabled {
 			// Enabled — start monitoring
-			log.Printf("[Reconciler] START %q (enabled)", name)
+			slog.Info("reconcile: start monitor",
+				slog.String("component", "reconciler"),
+				slog.String("action", "START"),
+				slog.String("app", name),
+				slog.String("reason", "enabled"),
+			)
 			existing.Stop() // ensure stopped
 			mon := NewMonitor(*desiredCfg, r.onStateChange)
 			r.monitors[name] = mon
@@ -99,7 +119,12 @@ func (r *Reconciler) Reconcile(desired map[string]*util.App) {
 
 		// Both enabled — check for identity changes
 		if hasIdentityChanged(currentCfg, *desiredCfg) {
-			log.Printf("[Reconciler] RESTART %q (identity changed)", name)
+			slog.Info("reconcile: restart monitor",
+				slog.String("component", "reconciler"),
+				slog.String("action", "RESTART"),
+				slog.String("app", name),
+				slog.String("reason", "identity changed"),
+			)
 			existing.SetConfig(*desiredCfg)
 			existing.Stop()
 			mon := NewMonitor(*desiredCfg, r.onStateChange)
@@ -110,7 +135,12 @@ func (r *Reconciler) Reconcile(desired map[string]*util.App) {
 
 		// Check for monitoring parameter changes (hot-reload)
 		if hasMonitoringParamsChanged(currentCfg, *desiredCfg) {
-			log.Printf("[Reconciler] HOT-RELOAD %q (params changed)", name)
+			slog.Info("reconcile: hot-reload monitor",
+				slog.String("component", "reconciler"),
+				slog.String("action", "HOT-RELOAD"),
+				slog.String("app", name),
+				slog.String("reason", "params changed"),
+			)
 			existing.UpdateMonitoringParams(*desiredCfg)
 			continue
 		}
@@ -121,7 +151,12 @@ func (r *Reconciler) Reconcile(desired map[string]*util.App) {
 	// Process removed entries: entries in current but not in desired
 	for name, mon := range r.monitors {
 		if _, exists := desired[name]; !exists {
-			log.Printf("[Reconciler] STOP %q (removed from config)", name)
+			slog.Info("reconcile: stop monitor",
+				slog.String("component", "reconciler"),
+				slog.String("action", "STOP"),
+				slog.String("app", name),
+				slog.String("reason", "removed from config"),
+			)
 			mon.Stop()
 			// Notify UI to remove this entry
 			if r.onStateChange != nil {
@@ -148,12 +183,17 @@ func (r *Reconciler) StopAll() {
 		wg.Add(1)
 		go func(name string, mon *Monitor) {
 			defer wg.Done()
-			log.Printf("[Reconciler] Stopping %q (shutdown)", name)
+			slog.Info("stopping monitor on shutdown",
+				slog.String("component", "reconciler"),
+				slog.String("app", name),
+			)
 			mon.Stop()
 		}(name, mon)
 	}
 	wg.Wait()
-	log.Println("[Reconciler] All monitors stopped")
+	slog.Info("all monitors stopped",
+		slog.String("component", "reconciler"),
+	)
 }
 
 // AllStatuses returns a sorted list of all monitor statuses for the UI.

@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -44,7 +44,7 @@ func ShowUI(reconciler *Reconciler, configPath string) error {
 	if err != nil {
 		return err
 	}
-	_ = stdout // Ignore stdout since we don't read JSON-RPC responses anymore
+	_ = stdout             // Ignore stdout since we don't read JSON-RPC responses anymore
 	cmd.Stderr = os.Stderr // pipe ui logs directly
 
 	if err := cmd.Start(); err != nil {
@@ -91,7 +91,11 @@ func (ui *UIProcess) SendState(status MonitorStatus) {
 		"restartCount": status.RestartCount,
 	}
 
-	log.Printf("[IPC] Sending UI.UpdateState: %q -> %s", status.Name, status.State)
+	slog.Info("sending state to UI",
+		slog.String("component", "ipc"),
+		slog.String("app", status.Name),
+		slog.String("state", string(status.State)),
+	)
 	ui.encoder.Encode(msg)
 }
 

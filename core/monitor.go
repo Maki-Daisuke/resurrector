@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -187,7 +187,11 @@ func (m *Monitor) monitorLoop() {
 
 		pid, jobHandle, err := startProcessWithJobObject(cfg)
 		if err != nil {
-			log.Printf("[%s] Failed to start process: %v", cfg.Name, err)
+			slog.Error("failed to start process",
+				slog.String("component", "monitor"),
+				slog.String("app", cfg.Name),
+				slog.Any("error", err),
+			)
 
 			m.mu.Lock()
 			m.restartCount++
@@ -381,7 +385,11 @@ func startProcessWithJobObject(cfg util.App) (pid int, jobHandle windows.Handle,
 	windows.CloseHandle(pi.Thread)
 	windows.CloseHandle(pi.Process)
 
-	log.Printf("[%s] Process started (PID: %d, Job Object: assigned)", cfg.Name, pi.ProcessId)
+	slog.Info("process started",
+		slog.String("component", "monitor"),
+		slog.String("app", cfg.Name),
+		slog.Uint64("pid", uint64(pi.ProcessId)),
+	)
 	return int(pi.ProcessId), jobHandle, nil
 }
 

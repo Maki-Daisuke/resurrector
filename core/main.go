@@ -4,7 +4,7 @@ import (
 	_ "embed"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -37,6 +37,10 @@ var (
 
 // showErrorDialog displays a native Windows error dialog with the given title and message.
 func showErrorDialog(title, message string) {
+	slog.Warn("error dialog shown",
+		slog.String("component", "error_dialog"),
+		slog.String("message", message),
+	)
 	titlePtr, _ := windows.UTF16PtrFromString(title)
 	messagePtr, _ := windows.UTF16PtrFromString(message)
 	const mbOK = 0x00000000
@@ -68,13 +72,20 @@ func resolveConfigPath(customPath string) (string, error) {
 		if err := os.WriteFile(configPath, defaultConfigFile, 0644); err != nil {
 			return "", fmt.Errorf("writing default config.toml: %w", err)
 		}
-		log.Printf("[Main] Created default config.toml at %s", configPath)
+		slog.Info("created default config.toml",
+			slog.String("component", "main"),
+			slog.String("path", configPath),
+		)
 	}
 
 	return configPath, nil
 }
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})))
+
 	var configFlag string
 	flag.StringVar(&configFlag, "f", "", "Path to config.toml")
 	flag.Parse()
@@ -125,14 +136,20 @@ func main() {
 		case stateChan <- status:
 		default:
 			// Channel full — drop oldest to avoid blocking
-			log.Printf("[StateChange] Channel full, dropping update for %q", status.Name)
+			slog.Warn("state channel full, dropping update",
+				slog.String("component", "state_change"),
+				slog.String("app", status.Name),
+			)
 		}
 	}
 
 	// Create reconciler and perform initial reconciliation
 	reconciler := NewReconciler(onStateChange)
 	reconciler.Reconcile(apps)
-	log.Printf("[Main] Initial reconciliation complete (%d entries)", len(apps))
+	slog.Info("initial reconciliation complete",
+		slog.String("component", "main"),
+		slog.Int("entries", len(apps)),
+	)
 
 	// Forward state changes to the UI process
 	go func() {
@@ -150,10 +167,15 @@ func main() {
 	RunSystray(iconData, func() {
 		err := ShowUI(reconciler, configPath)
 		if err != nil {
-			log.Printf("[Main] Failed to show UI: %v", err)
+			slog.Error("failed to show UI",
+				slog.String("component", "main"),
+				slog.Any("error", err),
+			)
 		}
 	}, func() {
-		log.Println("[Main] Quit requested — stopping all monitors")
+		slog.Info("quit requested, stopping all monitors",
+			slog.String("component", "main"),
+		)
 		reconciler.StopAll()
 		os.Exit(0)
 	})
@@ -164,7 +186,10 @@ func main() {
 func watchConfig(configPath string, reconciler *Reconciler) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		log.Printf("[Watcher] Failed to create fsnotify watcher: %v", err)
+		slog.Error("failed to create fsnotify watcher",
+			slog.String("component", "watcher"),
+			slog.Any("error", err),
+		)
 		return
 	}
 	defer watcher.Close()
@@ -173,11 +198,18 @@ func watchConfig(configPath string, reconciler *Reconciler) {
 	// fsnotify can miss events on the file itself when editors do "write-to-temp + rename".
 	dir := filepath.Dir(configPath)
 	if err := watcher.Add(dir); err != nil {
-		log.Printf("[Watcher] Failed to watch directory %s: %v", dir, err)
+		slog.Error("failed to watch directory",
+			slog.String("component", "watcher"),
+			slog.String("dir", dir),
+			slog.Any("error", err),
+		)
 		return
 	}
 
-	log.Printf("[Watcher] Watching %s for changes", configPath)
+	slog.Info("watching config for changes",
+		slog.String("component", "watcher"),
+		slog.String("path", configPath),
+	)
 
 	const debounceDelay = 500 * time.Millisecond
 	var debounceTimer *time.Timer
@@ -210,7 +242,10 @@ func watchConfig(configPath string, reconciler *Reconciler) {
 			if !ok {
 				return
 			}
-			log.Printf("[Watcher] Error: %v", err)
+			slog.Error("watcher error",
+				slog.String("component", "watcher"),
+				slog.Any("error", err),
+			)
 		}
 	}
 }
@@ -230,16 +265,27 @@ func reloadAndReconcile(configPath string, reconciler *Reconciler) {
 		if err == nil {
 			break
 		}
-		log.Printf("[Reload] Attempt %d failed: %v", attempt+1, err)
+		slog.Warn("config reload attempt failed",
+			slog.String("component", "reload"),
+			slog.Int("attempt", attempt+1),
+			slog.Any("error", err),
+		)
 		time.Sleep(retryDelay)
 	}
 
 	if err != nil {
 		// Invalid config — keep current state, log error
-		log.Printf("[Reload] Config reload failed after %d attempts, keeping current state: %v", maxRetries, err)
+		slog.Error("config reload failed after retries, keeping current state",
+			slog.String("component", "reload"),
+			slog.Int("attempts", maxRetries),
+			slog.Any("error", err),
+		)
 		return
 	}
 
-	log.Printf("[Reload] Config reloaded successfully (%d entries), reconciling...", len(apps))
+	slog.Info("config reloaded, reconciling",
+		slog.String("component", "reload"),
+		slog.Int("entries", len(apps)),
+	)
 	reconciler.Reconcile(apps)
 }
