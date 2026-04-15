@@ -51,16 +51,16 @@ To minimize system resource consumption, Resurrector consists of two independent
 
 ### 1. Core Process (`resurrector.exe`)
 
-- **Role**: Steady presence in the system tray. Watches `config.toml` for changes (read-only) and reconciles monitored processes to match the desired state. By default it reads from `~/.config/resurrector/config.toml`, but accepts a `-f <path>` flag.
-- **Technology**: Go (Pure), `energye/systray`, `golang.org/x/sys/windows`, `github.com/shirou/gopsutil`, `github.com/fsnotify/fsnotify`
-- **Features**: Does not have a UI; it continues to operate extremely lightly. When "Settings" is clicked from the system tray, it launches the UI process as a child process, passing `-f <path>` to it. **Never writes to `config.toml`.**
+- **Role**: Steady presence in the system tray. Watches `config.toml` for changes (read-only) and reconciles monitored processes to match the desired state. By default it reads from `~/.config/resurrector/config.toml`, but accepts CLI flags such as `-f <path>`, `-log-file <path>`, and `-log-format <text|json>`.
+- **Technology**: Go (Pure), `energye/systray`, `golang.org/x/sys/windows`, `github.com/fsnotify/fsnotify`
+- **Features**: Does not have a UI; it continues to operate extremely lightly. When "Settings" is clicked from the system tray, it launches the UI process as a child process and passes runtime flags (`-f`, `-log-file`, `-log-format`) to keep behavior consistent. **Never writes to `config.toml`.**
 - **Process Management**: Uses Windows Job Objects (`CreateJobObject`, `AssignProcessToJobObject`) to bind spawned child processes to its own lifecycle. This ensures that any command (even ones that spawn further sub-processes like `npm run start`) and its entire process tree are cleanly terminated when the core requests a stop or when the core process itself exits.
 
 ### 2. UI Process (`resurrector-ui.exe`)
 
 - **Role**: Configuration screen for the user, real-time display of monitoring status. Provides a management interface to Create, Read, Update, and Delete (CRUD) entries in `config.toml` via a Wails bridge.
 - **Technology**: Go + Wails + Svelte (TypeScript)
-- **Features**: Uses a custom Wails logger that writes to `STDERR`, leaving `STDOUT` and `STDIN` exclusively for JSON-RPC messaging (IPC). The UI **writes directly to `config.toml`** (using atomic writes) when the user makes configuration changes — the core detects these changes via fsnotify and reconciles automatically.
+- **Features**: Uses a custom Wails logger. By default logs go to `STDERR`, and `STDOUT`/`STDIN` remain exclusively for JSON-RPC messaging (IPC); when `-log-file` is specified, logs are appended to that file instead. The UI **writes directly to `config.toml`** (using atomic writes) when the user makes configuration changes — the core detects these changes via fsnotify and reconciles automatically.
 - **Config Bridge**: Implements a `config_bridge.go` that exposes an `AppConfig` DTO (Data Transfer Object) to the frontend. This DTO handles:
   - Field name mapping (e.g., camelCase for JSON/TypeScript, snake_case for TOML).
   - Argument formatting: Converting `[]string` from TOML into a single shell-like `string` for user-friendly editing, and parsing it back using `util.ParseArgs`.
@@ -244,7 +244,9 @@ Each monitored process entry runs through the following state machine:
 │   ├── config_bridge.go    # Bridge for CRUD operations on config.toml
 │   └── frontend/           # Svelte application (UI screens)
 ├── util/                   # Common utilities
-│   └── config.go           # TOML parsing, Atomic writes, Shell-like arg parsing
+│   ├── config.go           # TOML parsing, Atomic writes, Shell-like arg parsing
+│   ├── flag.go             # Shared CLI flag parsing and config-path normalization
+│   └── logger.go           # Shared slog setup (output destination and format)
 ├── config.example.toml     # Sample configuration file
 └── package.json            # Build scripts (npm)
 ```
