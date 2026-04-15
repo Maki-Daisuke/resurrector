@@ -2,8 +2,11 @@ package main
 
 import (
 	"embed"
+	"fmt"
 	"log/slog"
 	"os"
+
+	"resurrector/util"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/logger"
@@ -60,17 +63,29 @@ func (l *wailsSlogLogger) Fatal(message string) {
 }
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	})))
-
-	configPath := parseFlags()
+	runtimeFlags, err := util.ParseRuntimeFlags()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to parse runtime flags: %v\n", err)
+		os.Exit(1)
+	}
+	closeLogWriter, err := util.ConfigureLogger(runtimeFlags.LogFile, runtimeFlags.LogFormat)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to configure logger, falling back to stderr text: %v\n", err)
+		closeLogWriter, err = util.ConfigureLogger("", "text")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to configure fallback logger: %v\n", err)
+			os.Exit(1)
+		}
+	}
+	if closeLogWriter != nil {
+		defer closeLogWriter()
+	}
 
 	// Create an instance of the app structure
-	app := NewApp(configPath)
+	app := NewApp(runtimeFlags.ConfigPath)
 
 	// Create application with options
-	err := wails.Run(&options.App{
+	err = wails.Run(&options.App{
 		Title:  "Resurrector",
 		Width:  900,
 		Height: 700,

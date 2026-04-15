@@ -3,9 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
-	"flag"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -44,21 +42,4 @@ func (a *App) domReady(ctx context.Context) {
 		// Core process exited, Stdin pipe closed -> shut down UI
 		runtime.Quit(ctx)
 	}()
-}
-
-// parseFlags parses command-line flags and returns the config file path.
-// It is called before wails.Run so the App struct can be initialised with the path.
-func parseFlags() string {
-	var configPath string
-	flag.StringVar(&configPath, "f", "", "Path to config.toml (passed by the core process)")
-	flag.Parse()
-    
-	if configPath == "" {
-		home, err := os.UserHomeDir()
-		if err == nil {
-			configPath = filepath.Join(home, ".config", "resurrector", "config.toml")
-		}
-	}
-
-	return configPath
 }

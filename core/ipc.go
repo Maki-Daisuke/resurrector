@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+
+	"resurrector/util"
 )
 
 // UIProcess represents a running UI process and its JSON encoder.
@@ -21,7 +23,7 @@ var (
 )
 
 // ShowUI launches the UI process and sends the initial state from the reconciler.
-func ShowUI(reconciler *Reconciler, configPath string) error {
+func ShowUI(reconciler *Reconciler, runtimeFlags util.RuntimeFlags) error {
 	currentUIMu.Lock()
 	defer currentUIMu.Unlock()
 
@@ -35,7 +37,12 @@ func ShowUI(reconciler *Reconciler, configPath string) error {
 	}
 	uiExe := filepath.Join(filepath.Dir(exePath), "resurrector-ui.exe")
 
-	cmd := exec.Command(uiExe, "-f", configPath)
+	args := []string{"-f", runtimeFlags.ConfigPath}
+	if runtimeFlags.LogFile != "" {
+		args = append(args, "-log-file", runtimeFlags.LogFile)
+	}
+	args = append(args, "-log-format", runtimeFlags.LogFormat)
+	cmd := exec.Command(uiExe, args...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return err

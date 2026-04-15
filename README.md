@@ -81,6 +81,8 @@ The following files will be generated in the `build/` directory:
 ### CLI Options
 
 - `-f <path>`: Specifies a custom path to the `config.toml` file. If not provided, it defaults to `%USERPROFILE%\.config\resurrector\config.toml`.
+- `-log-file <path>`: Writes logs to the specified file in append mode. If not provided, logs are written to `stderr`.
+- `-log-format <text|json>`: Sets the log output format. Default is `text`.
 
 ## Development
 

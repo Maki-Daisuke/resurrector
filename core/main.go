@@ -2,7 +2,6 @@ package main
 
 import (
 	_ "embed"
-	"flag"
 	"fmt"
 	"log/slog"
 	"os"
@@ -48,25 +47,13 @@ func showErrorDialog(title, message string) {
 	procMessageBox.Call(0, uintptr(unsafe.Pointer(messagePtr)), uintptr(unsafe.Pointer(titlePtr)), mbOK|mbIconError)
 }
 
-// resolveConfigPath returns the absolute path to config.toml.
-// If customPath is provided via '-f', it returns that.
-// Otherwise, it falls back to ~/.config/resurrector/config.toml and creates it from defaults if missing.
-func resolveConfigPath(customPath string) (string, error) {
-	if customPath != "" {
-		return filepath.Abs(customPath)
-	}
-
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("getting user home dir: %w", err)
-	}
-
-	configDir := filepath.Join(home, ".config", "resurrector")
+// resolveConfigPath ensures the config directory/file exists and returns the path.
+func resolveConfigPath(configPath string) (string, error) {
+	configDir := filepath.Dir(configPath)
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		return "", fmt.Errorf("creating config directory: %w", err)
 	}
 
-	configPath := filepath.Join(configDir, "config.toml")
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		// Create default config file
 		if err := os.WriteFile(configPath, defaultConfigFile, 0644); err != nil {
@@ -82,13 +69,23 @@ func resolveConfigPath(customPath string) (string, error) {
 }
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	})))
-
-	var configFlag string
-	flag.StringVar(&configFlag, "f", "", "Path to config.toml")
-	flag.Parse()
+	options, err := util.ParseRuntimeFlags()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to parse runtime flags: %v\n", err)
+		os.Exit(1)
+	}
+	closeLogWriter, err := util.ConfigureLogger(options.LogFile, options.LogFormat)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to configure logger, falling back to stderr text: %v\n", err)
+		closeLogWriter, err = util.ConfigureLogger("", "text")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to configure fallback logger: %v\n", err)
+			os.Exit(1)
+		}
+	}
+	if closeLogWriter != nil {
+		defer closeLogWriter()
+	}
 
 	// Allow only one core (tray) process. We open a session-local named mutex; the
 	// first run creates it, a second run gets ERROR_ALREADY_EXISTS and exits here
@@ -112,11 +109,12 @@ func main() {
 	}
 	defer windows.CloseHandle(instanceMutex)
 
-	configPath, err := resolveConfigPath(configFlag)
+	configPath, err := resolveConfigPath(options.ConfigPath)
 	if err != nil {
 		showErrorDialog("Resurrector - Error", fmt.Sprintf("Failed to resolve config path:\n\n%v", err))
 		os.Exit(1)
 	}
+	options.ConfigPath = configPath
 
 	// Initial config load
 	apps, err := util.LoadConfig(configPath)
@@ -165,7 +163,7 @@ func main() {
 
 	// Start tray loop (blocks until quit)
 	RunSystray(iconData, func() {
-		err := ShowUI(reconciler, configPath)
+		err := ShowUI(reconciler, options)
 		if err != nil {
 			slog.Error("failed to show UI",
 				slog.String("component", "main"),
