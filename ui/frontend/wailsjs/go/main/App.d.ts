@@ -4,6 +4,8 @@ import {main} from '../models';
 
 export function DeleteAppConfig(arg1:string):Promise<void>;
 
+export function GetCommandExtensions():Promise<Array<string>>;
+
 export function GetFullConfig():Promise<Record<string, main.AppConfig>>;
 
 export function SelectCommandPath(arg1:string):Promise<string>;

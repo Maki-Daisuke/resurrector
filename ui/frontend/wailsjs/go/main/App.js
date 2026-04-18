@@ -6,6 +6,10 @@ export function DeleteAppConfig(arg1) {
   return window['go']['main']['App']['DeleteAppConfig'](arg1);
 }
 
+export function GetCommandExtensions() {
+  return window['go']['main']['App']['GetCommandExtensions']();
+}
+
 export function GetFullConfig() {
   return window['go']['main']['App']['GetFullConfig']();
 }

@@ -1,7 +1,15 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { EventsOn } from "../wailsjs/runtime/runtime";
-  import { GetFullConfig, UpdateAppConfig, DeleteAppConfig } from "../wailsjs/go/main/App";
+  import { onDestroy, onMount } from "svelte";
+  import {
+    EventsOn,
+    OnFileDrop,
+    OnFileDropOff,
+  } from "../wailsjs/runtime/runtime";
+  import {
+    GetFullConfig,
+    UpdateAppConfig,
+    DeleteAppConfig,
+  } from "../wailsjs/go/main/App";
   import type { main } from "../wailsjs/go/models";
   import AgGridSvelte from "ag-grid-svelte";
   import type { ColDef, GridApi, GridReadyEvent } from "ag-grid-community";
@@ -42,6 +50,14 @@
         console.error("Failed to parse event:", e);
       }
     });
+
+    OnFileDrop((_x: number, _y: number, paths: string[]) => {
+      handleDroppedCommand(paths);
+    }, false);
+  });
+
+  onDestroy(() => {
+    OnFileDropOff();
   });
 
   $: appList = Object.values(apps);
@@ -58,10 +74,20 @@
     let color = "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300";
     const state = params.value.toLowerCase();
     switch (state) {
-      case "running":  color = "bg-green-100 text-green-800 dark:bg-green-200 dark:text-green-900"; break;
-      case "stopped":  color = "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300"; break;
-      case "retrying": color = "bg-yellow-100 text-yellow-800 dark:bg-yellow-200 dark:text-yellow-900"; break;
-      case "failed":   color = "bg-red-100 text-red-800 dark:bg-red-200 dark:text-red-900"; break;
+      case "running":
+        color =
+          "bg-green-100 text-green-800 dark:bg-green-200 dark:text-green-900";
+        break;
+      case "stopped":
+        color = "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300";
+        break;
+      case "retrying":
+        color =
+          "bg-yellow-100 text-yellow-800 dark:bg-yellow-200 dark:text-yellow-900";
+        break;
+      case "failed":
+        color = "bg-red-100 text-red-800 dark:bg-red-200 dark:text-red-900";
+        break;
     }
     return `<span class="px-2.5 py-0.5 rounded text-xs font-semibold ${color}">${params.value}</span>`;
   }
@@ -82,11 +108,32 @@
   }
 
   let columnDefs: ColDef<AppStateInfo>[] = [
-    { field: "name",    headerName: "App Name", flex: 2, minWidth: 150 },
-    { field: "pid",     headerName: "PID",      width: 100, valueFormatter: (p: any) => p.value > 0 ? p.value : "-" },
-    { field: "state",   headerName: "State",    width: 120, cellRenderer: stateRenderer },
-    { field: "enabled", headerName: "Enabled",  width: 130, cellRenderer: enabledRenderer },
-    { field: "command", headerName: "Command",  flex: 3, minWidth: 200, valueGetter: commandRenderer },
+    { field: "name", headerName: "App Name", flex: 2, minWidth: 150 },
+    {
+      field: "pid",
+      headerName: "PID",
+      width: 100,
+      valueFormatter: (p: any) => (p.value > 0 ? p.value : "-"),
+    },
+    {
+      field: "state",
+      headerName: "State",
+      width: 120,
+      cellRenderer: stateRenderer,
+    },
+    {
+      field: "enabled",
+      headerName: "Enabled",
+      width: 130,
+      cellRenderer: enabledRenderer,
+    },
+    {
+      field: "command",
+      headerName: "Command",
+      flex: 3,
+      minWidth: 200,
+      valueGetter: commandRenderer,
+    },
   ];
 
   const defaultColDef: ColDef = { resizable: true, sortable: true };
@@ -101,7 +148,13 @@
   let errorMessage = "";
   let isCreateMode = false;
 
+  let commandDropExtensions = [".exe", ".cmd", ".bat", ".com", ".ps1", ".vbs"];
+  (async () => {
+    commandDropExtensions = await getCommandExtensions();
+  })();
+
   let editingOriginalName = "";
+
   let editForm: main.AppConfig = makeEmptyForm();
 
   function makeEmptyForm(): main.AppConfig {
@@ -154,8 +207,11 @@
 
   function handleRowDoubleClick(event: any) {
     // Ag-grid event data is typically in event.data
-    const name: string = event?.data?.name || event?.detail?.data?.name || (event?.node && event.node.data && event.node.data.name);
-    
+    const name: string =
+      event?.data?.name ||
+      event?.detail?.data?.name ||
+      (event?.node && event.node.data && event.node.data.name);
+
     if (name) {
       openEditDialog(name);
     } else {
@@ -170,6 +226,47 @@
     isCreateMode = false;
   }
 
+  function getCommandExtensions(): Promise<string[]> {
+    return (window as any).go.main.App.GetCommandExtensions();
+  }
+
+  function setCommandValue(command: string) {
+    editForm = { ...editForm, command };
+  }
+
+  function isSupportedCommandFile(path: string): boolean {
+    const normalized = path.trim().toLowerCase();
+    return commandDropExtensions.some((ext) => normalized.endsWith(ext));
+  }
+
+  function handleDroppedCommand(paths: string[]) {
+    if (!paths || paths.length === 0) {
+      return;
+    }
+
+    const droppedPath = (paths[0] || "").trim();
+    if (!droppedPath) {
+      return;
+    }
+
+    if (!isSupportedCommandFile(droppedPath)) {
+      errorMessage =
+        "Dropped file is not a supported command type. Drop an executable or script file.";
+      return;
+    }
+
+    errorMessage = "";
+
+    if (dialogOpen) {
+      confirmDelete = false;
+      setCommandValue(droppedPath);
+      return;
+    }
+
+    openCreateDialog();
+    setCommandValue(droppedPath);
+  }
+
   function selectCommandPath(current: string): Promise<string> {
     return (window as any).go.main.App.SelectCommandPath(current);
   }
@@ -180,7 +277,7 @@
     try {
       const selected = await selectCommandPath(editForm.command || "");
       if (selected && selected.trim()) {
-        editForm.command = selected.trim();
+        setCommandValue(selected.trim());
       }
     } catch (e: any) {
       errorMessage = `Command selection failed: ${e}`;
@@ -254,8 +351,12 @@
 <!-- =========================================================================
      Main Layout
      ========================================================================= -->
-<main class="p-6 h-screen w-full flex flex-col items-center box-border bg-gray-50 dark:bg-slate-900">
-  <div class="w-full flex-1 shadow-2xl sm:rounded-lg flex flex-col overflow-hidden bg-white dark:bg-gray-800">
+<main
+  class="p-6 h-screen w-full flex flex-col items-center box-border bg-gray-50 dark:bg-slate-900"
+>
+  <div
+    class="w-full flex-1 shadow-2xl sm:rounded-lg flex flex-col overflow-hidden bg-white dark:bg-gray-800"
+  >
     <div class="ag-theme-alpine w-full h-full flex-grow">
       <AgGridSvelte
         rowData={appList}
@@ -268,7 +369,12 @@
       />
     </div>
     <div class="toolbar">
-      <button class="btn btn-primary" type="button" on:click={openCreateDialog}>Add</button>
+      <button class="btn btn-primary" type="button" on:click={openCreateDialog}
+        >Add</button
+      >
+    </div>
+    <div class="drop-hint">
+      Drop an executable onto the window to register a new app entry.
     </div>
   </div>
 </main>
@@ -281,7 +387,12 @@
   <div class="dialog-backdrop" on:click={closeDialog} role="presentation" />
 
   <!-- Modal -->
-  <div class="dialog-panel" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+  <div
+    class="dialog-panel"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="dialog-title"
+  >
     <div class="dialog-header">
       <h2 id="dialog-title" class="dialog-title">
         {isCreateMode ? "Add App Configuration" : "Edit App Configuration"}
@@ -293,14 +404,24 @@
       <div class="confirm-delete-area">
         <div class="confirm-icon">⚠️</div>
         <p class="confirm-text">
-          Are you sure you want to delete <strong>"{editingOriginalName}"</strong>?<br />
+          Are you sure you want to delete <strong
+            >"{editingOriginalName}"</strong
+          >?<br />
           This cannot be undone.
         </p>
         <div class="confirm-buttons">
-          <button class="btn btn-ghost" on:click={handleDeleteCancel} disabled={isSaving}>
+          <button
+            class="btn btn-ghost"
+            on:click={handleDeleteCancel}
+            disabled={isSaving}
+          >
             Cancel
           </button>
-          <button class="btn btn-danger" on:click={handleDeleteConfirm} disabled={isSaving}>
+          <button
+            class="btn btn-danger"
+            on:click={handleDeleteConfirm}
+            disabled={isSaving}
+          >
             {isSaving ? "Deleting…" : "Yes, Delete"}
           </button>
         </div>
@@ -308,16 +429,25 @@
     {:else}
       <!-- ── Form ──────────────────────────────────────────────────────── -->
       <form class="dialog-form" on:submit|preventDefault={handleSave}>
-
         <!-- App Name -->
         <div class="field field-full">
-          <label class="field-label" for="field-name">App Name <span class="required">*</span></label>
-          <input id="field-name" class="field-input" type="text" bind:value={editForm.name} placeholder="My Application" />
+          <label class="field-label" for="field-name"
+            >App Name <span class="required">*</span></label
+          >
+          <input
+            id="field-name"
+            class="field-input"
+            type="text"
+            bind:value={editForm.name}
+            placeholder="My Application"
+          />
         </div>
 
         <!-- Command -->
         <div class="field field-full">
-          <label class="field-label" for="field-command">Command <span class="required">*</span></label>
+          <label class="field-label" for="field-command"
+            >Command <span class="required">*</span></label
+          >
           <div class="input-with-button">
             <input
               id="field-command"
@@ -341,18 +471,34 @@
         <div class="field field-full">
           <label class="field-label" for="field-args">
             Args
-            <span class="field-hint">Shell-style: <code>/c "echo hello" --debug</code></span>
+            <span class="field-hint"
+              >Shell-style: <code>/c "echo hello" --debug</code></span
+            >
           </label>
-          <input id="field-args" class="field-input field-mono" type="text" bind:value={editForm.args} placeholder='/c "My App" --verbose' />
+          <input
+            id="field-args"
+            class="field-input field-mono"
+            type="text"
+            bind:value={editForm.args}
+            placeholder='/c "My App" --verbose'
+          />
         </div>
 
         <!-- CWD -->
         <div class="field field-full">
           <label class="field-label" for="field-cwd">
             Working Directory
-            <span class="field-hint">Optional – defaults to the command's directory</span>
+            <span class="field-hint"
+              >Optional – defaults to the command's directory</span
+            >
           </label>
-          <input id="field-cwd" class="field-input field-mono" type="text" bind:value={editForm.cwd} placeholder="C:\path\to\cwd (optional)" />
+          <input
+            id="field-cwd"
+            class="field-input field-mono"
+            type="text"
+            bind:value={editForm.cwd}
+            placeholder="C:\path\to\cwd (optional)"
+          />
         </div>
 
         <!-- Numeric fields row -->
@@ -366,9 +512,16 @@
               <input
                 id="field-restart-delay"
                 class="field-input field-number"
-                type="number" min="0" max="3600"
+                type="number"
+                min="0"
+                max="3600"
                 bind:value={editForm.restartDelaySec}
-                on:change={() => editForm.restartDelaySec = clampInt(editForm.restartDelaySec, 0, 3600)}
+                on:change={() =>
+                  (editForm.restartDelaySec = clampInt(
+                    editForm.restartDelaySec,
+                    0,
+                    3600,
+                  ))}
               />
             </div>
           </div>
@@ -381,9 +534,16 @@
               <input
                 id="field-healthy-timeout"
                 class="field-input field-number"
-                type="number" min="0" max="3600"
+                type="number"
+                min="0"
+                max="3600"
                 bind:value={editForm.healthyTimeoutSec}
-                on:change={() => editForm.healthyTimeoutSec = clampInt(editForm.healthyTimeoutSec, 0, 3600)}
+                on:change={() =>
+                  (editForm.healthyTimeoutSec = clampInt(
+                    editForm.healthyTimeoutSec,
+                    0,
+                    3600,
+                  ))}
               />
             </div>
           </div>
@@ -396,9 +556,16 @@
               <input
                 id="field-max-retries"
                 class="field-input field-number"
-                type="number" min="-1" max="999"
+                type="number"
+                min="-1"
+                max="999"
                 bind:value={editForm.maxRetries}
-                on:change={() => editForm.maxRetries = clampInt(editForm.maxRetries, -1, 999)}
+                on:change={() =>
+                  (editForm.maxRetries = clampInt(
+                    editForm.maxRetries,
+                    -1,
+                    999,
+                  ))}
               />
             </div>
           </div>
@@ -407,11 +574,21 @@
         <!-- Checkboxes -->
         <div class="checkbox-row">
           <label class="checkbox-label" for="field-hide-window">
-            <input id="field-hide-window" type="checkbox" class="checkbox" bind:checked={editForm.hideWindow} />
+            <input
+              id="field-hide-window"
+              type="checkbox"
+              class="checkbox"
+              bind:checked={editForm.hideWindow}
+            />
             <span>Hide Window</span>
           </label>
           <label class="checkbox-label" for="field-enabled">
-            <input id="field-enabled" type="checkbox" class="checkbox" bind:checked={editForm.enabled} />
+            <input
+              id="field-enabled"
+              type="checkbox"
+              class="checkbox"
+              bind:checked={editForm.enabled}
+            />
             <span>Enabled</span>
           </label>
         </div>
@@ -424,12 +601,22 @@
         <!-- Action Buttons -->
         <div class="dialog-actions">
           {#if !isCreateMode}
-            <button type="button" class="btn btn-danger-ghost" on:click={handleDeleteClick} disabled={isSaving}>
+            <button
+              type="button"
+              class="btn btn-danger-ghost"
+              on:click={handleDeleteClick}
+              disabled={isSaving}
+            >
               Delete
             </button>
           {/if}
           <div class="dialog-actions-right">
-            <button type="button" class="btn btn-ghost" on:click={closeDialog} disabled={isSaving}>
+            <button
+              type="button"
+              class="btn btn-ghost"
+              on:click={closeDialog}
+              disabled={isSaving}
+            >
               Cancel
             </button>
             <button type="submit" class="btn btn-primary" disabled={isSaving}>
@@ -437,7 +624,6 @@
             </button>
           </div>
         </div>
-
       </form>
     {/if}
   </div>
@@ -458,6 +644,13 @@
     justify-content: flex-end;
     margin-top: 12px;
     padding: 0 12px 12px;
+  }
+
+  .drop-hint {
+    padding: 0 12px 12px;
+    color: #64748b;
+    font-size: 0.78rem;
+    text-align: right;
   }
 
   /* ── Backdrop ───────────────────────────────────────────────────────────── */
@@ -489,11 +682,27 @@
     backdrop-filter: blur(20px) saturate(180%);
     animation: slideUp 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
     color: #e2e8f0;
-    font-family: 'Inter', 'Segoe UI', sans-serif;
+    font-family: "Inter", "Segoe UI", sans-serif;
   }
 
-  @keyframes fadeIn  { from { opacity: 0; } to { opacity: 1; } }
-  @keyframes slideUp { from { opacity: 0; transform: translate(-50%, calc(-50% + 24px)); } to { opacity: 1; transform: translate(-50%, -50%); } }
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes slideUp {
+    from {
+      opacity: 0;
+      transform: translate(-50%, calc(-50% + 24px));
+    }
+    to {
+      opacity: 1;
+      transform: translate(-50%, -50%);
+    }
+  }
 
   /* ── Header ─────────────────────────────────────────────────────────────── */
   .dialog-header {
@@ -512,8 +721,8 @@
     margin: 0;
   }
   .dialog-subtitle code {
-    font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
-    background: rgba(255,255,255,0.06);
+    font-family: "JetBrains Mono", "Cascadia Code", monospace;
+    background: rgba(255, 255, 255, 0.06);
     padding: 1px 4px;
     border-radius: 4px;
   }
@@ -526,8 +735,15 @@
     gap: 14px;
   }
 
-  .field { display: flex; flex-direction: column; gap: 5px; flex: 1; }
-  .field-full { width: 100%; }
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    flex: 1;
+  }
+  .field-full {
+    width: 100%;
+  }
   .field-row {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -544,7 +760,9 @@
     align-items: baseline;
     gap: 6px;
   }
-  .required { color: #f87171; }
+  .required {
+    color: #f87171;
+  }
   .field-hint {
     font-size: 0.7rem;
     font-weight: 400;
@@ -553,8 +771,8 @@
     color: #4b5563;
   }
   .field-hint code {
-    font-family: 'JetBrains Mono', monospace;
-    background: rgba(255,255,255,0.06);
+    font-family: "JetBrains Mono", monospace;
+    background: rgba(255, 255, 255, 0.06);
     padding: 1px 4px;
     border-radius: 3px;
   }
@@ -567,7 +785,9 @@
     color: #f1f5f9;
     font-size: 0.875rem;
     outline: none;
-    transition: border-color 0.15s, box-shadow 0.15s;
+    transition:
+      border-color 0.15s,
+      box-shadow 0.15s;
     width: 100%;
     box-sizing: border-box;
   }
@@ -575,8 +795,13 @@
     border-color: #6366f1;
     box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
   }
-  .field-input::placeholder { color: #475569; }
-  .field-mono { font-family: 'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace; font-size: 0.82rem; }
+  .field-input::placeholder {
+    color: #475569;
+  }
+  .field-mono {
+    font-family: "JetBrains Mono", "Cascadia Code", "Consolas", monospace;
+    font-size: 0.82rem;
+  }
 
   .input-with-button {
     display: flex;
@@ -588,7 +813,9 @@
   }
 
   /* number input */
-  .number-input-wrap { position: relative; }
+  .number-input-wrap {
+    position: relative;
+  }
   .field-number {
     -moz-appearance: textfield;
     appearance: textfield;
@@ -643,14 +870,18 @@
     padding: 32px 28px;
     text-align: center;
   }
-  .confirm-icon { font-size: 2.5rem; }
+  .confirm-icon {
+    font-size: 2.5rem;
+  }
   .confirm-text {
     color: #cbd5e1;
     font-size: 0.95rem;
     line-height: 1.6;
     margin: 0;
   }
-  .confirm-text strong { color: #f87171; }
+  .confirm-text strong {
+    color: #f87171;
+  }
   .confirm-buttons {
     display: flex;
     gap: 12px;
@@ -668,7 +899,10 @@
   .dialog-actions > .btn-danger-ghost {
     margin-right: auto;
   }
-  .dialog-actions-right { display: flex; gap: 8px; }
+  .dialog-actions-right {
+    display: flex;
+    gap: 8px;
+  }
 
   .btn {
     padding: 8px 18px;
@@ -677,36 +911,54 @@
     font-weight: 600;
     cursor: pointer;
     border: 1px solid transparent;
-    transition: background 0.15s, border-color 0.15s, transform 0.1s, opacity 0.15s;
+    transition:
+      background 0.15s,
+      border-color 0.15s,
+      transform 0.1s,
+      opacity 0.15s;
     outline: none;
     white-space: nowrap;
   }
   .btn-compact {
     padding: 8px 12px;
   }
-  .btn:active { transform: scale(0.97); }
-  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn:active {
+    transform: scale(0.97);
+  }
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 
   .btn-primary {
     background: #6366f1;
     color: #fff;
     border-color: #6366f1;
   }
-  .btn-primary:hover:not(:disabled) { background: #4f46e5; border-color: #4f46e5; }
+  .btn-primary:hover:not(:disabled) {
+    background: #4f46e5;
+    border-color: #4f46e5;
+  }
 
   .btn-ghost {
     background: transparent;
     color: #94a3b8;
-    border-color: rgba(255,255,255,0.1);
+    border-color: rgba(255, 255, 255, 0.1);
   }
-  .btn-ghost:hover:not(:disabled) { background: rgba(255,255,255,0.06); color: #e2e8f0; }
+  .btn-ghost:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.06);
+    color: #e2e8f0;
+  }
 
   .btn-danger {
     background: #ef4444;
     color: #fff;
     border-color: #ef4444;
   }
-  .btn-danger:hover:not(:disabled) { background: #dc2626; border-color: #dc2626; }
+  .btn-danger:hover:not(:disabled) {
+    background: #dc2626;
+    border-color: #dc2626;
+  }
 
   .btn-danger-ghost {
     background: transparent;
@@ -714,5 +966,7 @@
     border-color: rgba(248, 113, 113, 0.3);
     padding: 8px 14px;
   }
-  .btn-danger-ghost:hover:not(:disabled) { background: rgba(239, 68, 68, 0.12); }
+  .btn-danger-ghost:hover:not(:disabled) {
+    background: rgba(239, 68, 68, 0.12);
+  }
 </style>

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -46,17 +47,69 @@ func (a *App) domReady(ctx context.Context) {
 	}()
 }
 
+var defaultCommandExtensions = []string{".exe", ".cmd", ".bat", ".com", ".ps1", ".vbs"}
+
+func commandExtensions() []string {
+	raw := strings.TrimSpace(os.Getenv("PATHEXT"))
+	if raw == "" {
+		return append([]string(nil), defaultCommandExtensions...)
+	}
+
+	parts := strings.Split(raw, string(os.PathListSeparator))
+	seen := make(map[string]struct{}, len(parts))
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		ext := strings.ToLower(strings.TrimSpace(part))
+		if ext == "" {
+			continue
+		}
+		if !strings.HasPrefix(ext, ".") {
+			ext = "." + ext
+		}
+		if _, ok := seen[ext]; ok {
+			continue
+		}
+		seen[ext] = struct{}{}
+		result = append(result, ext)
+	}
+
+	if len(result) == 0 {
+		return append([]string(nil), defaultCommandExtensions...)
+	}
+
+	return result
+}
+
+func commandFileDialogPattern() string {
+	extensions := commandExtensions()
+	patterns := make([]string, 0, len(extensions))
+	for _, ext := range extensions {
+		patterns = append(patterns, "*"+ext)
+	}
+	return strings.Join(patterns, ";")
+}
+
+// GetCommandExtensions returns the executable/script extensions accepted by this Windows environment.
+func (a *App) GetCommandExtensions() []string {
+	return commandExtensions()
+}
+
 // SelectCommandPath opens a native file dialog for selecting or typing a command path.
 func (a *App) SelectCommandPath(current string) (string, error) {
 	if a.ctx == nil {
 		return "", fmt.Errorf("app context is not initialized")
 	}
 
+	defaultFilename := strings.TrimSpace(current)
+	if defaultFilename != "" {
+		defaultFilename = filepath.Clean(defaultFilename)
+	}
+
 	selected, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
 		Title:           "Select Command (or type a path in File name)",
-		DefaultFilename: strings.TrimSpace(current),
+		DefaultFilename: defaultFilename,
 		Filters: []runtime.FileFilter{
-			{DisplayName: "Command Files", Pattern: "*.exe;*.cmd;*.bat;*.com;*.ps1;*.vbs"},
+			{DisplayName: "Command Files", Pattern: commandFileDialogPattern()},
 			{DisplayName: "All Files", Pattern: "*"},
 		},
 	})
