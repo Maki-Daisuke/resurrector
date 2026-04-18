@@ -97,6 +97,7 @@
   let dialogOpen = false;
   let confirmDelete = false;
   let isSaving = false;
+  let isPickingCommand = false;
   let errorMessage = "";
   let isCreateMode = false;
 
@@ -167,6 +168,25 @@
     confirmDelete = false;
     errorMessage = "";
     isCreateMode = false;
+  }
+
+  function selectCommandPath(current: string): Promise<string> {
+    return (window as any).go.main.App.SelectCommandPath(current);
+  }
+
+  async function handleBrowseCommand() {
+    errorMessage = "";
+    isPickingCommand = true;
+    try {
+      const selected = await selectCommandPath(editForm.command || "");
+      if (selected && selected.trim()) {
+        editForm.command = selected.trim();
+      }
+    } catch (e: any) {
+      errorMessage = `Command selection failed: ${e}`;
+    } finally {
+      isPickingCommand = false;
+    }
   }
 
   async function handleSave() {
@@ -298,7 +318,23 @@
         <!-- Command -->
         <div class="field field-full">
           <label class="field-label" for="field-command">Command <span class="required">*</span></label>
-          <input id="field-command" class="field-input field-mono" type="text" bind:value={editForm.command} placeholder="C:\Windows\System32\cmd.exe" />
+          <div class="input-with-button">
+            <input
+              id="field-command"
+              class="field-input field-mono"
+              type="text"
+              bind:value={editForm.command}
+              placeholder="C:\\Windows\\System32\\cmd.exe"
+            />
+            <button
+              type="button"
+              class="btn btn-ghost btn-compact"
+              on:click={handleBrowseCommand}
+              disabled={isSaving || isPickingCommand}
+            >
+              {isPickingCommand ? "Opening..." : "Browse..."}
+            </button>
+          </div>
         </div>
 
         <!-- Args -->
@@ -542,6 +578,15 @@
   .field-input::placeholder { color: #475569; }
   .field-mono { font-family: 'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace; font-size: 0.82rem; }
 
+  .input-with-button {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .input-with-button .field-input {
+    flex: 1;
+  }
+
   /* number input */
   .number-input-wrap { position: relative; }
   .field-number {
@@ -635,6 +680,9 @@
     transition: background 0.15s, border-color 0.15s, transform 0.1s, opacity 0.15s;
     outline: none;
     white-space: nowrap;
+  }
+  .btn-compact {
+    padding: 8px 12px;
   }
   .btn:active { transform: scale(0.97); }
   .btn:disabled { opacity: 0.5; cursor: not-allowed; }

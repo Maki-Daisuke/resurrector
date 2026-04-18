@@ -6,4 +6,6 @@ export function DeleteAppConfig(arg1:string):Promise<void>;
 
 export function GetFullConfig():Promise<Record<string, main.AppConfig>>;
 
+export function SelectCommandPath(arg1:string):Promise<string>;
+
 export function UpdateAppConfig(arg1:string,arg2:main.AppConfig):Promise<void>;

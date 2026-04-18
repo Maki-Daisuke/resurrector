@@ -10,6 +10,10 @@ export function GetFullConfig() {
   return window['go']['main']['App']['GetFullConfig']();
 }
 
+export function SelectCommandPath(arg1) {
+  return window['go']['main']['App']['SelectCommandPath'](arg1);
+}
+
 export function UpdateAppConfig(arg1, arg2) {
   return window['go']['main']['App']['UpdateAppConfig'](arg1, arg2);
 }

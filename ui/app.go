@@ -3,7 +3,9 @@ package main
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -42,4 +44,25 @@ func (a *App) domReady(ctx context.Context) {
 		// Core process exited, Stdin pipe closed -> shut down UI
 		runtime.Quit(ctx)
 	}()
+}
+
+// SelectCommandPath opens a native file dialog for selecting or typing a command path.
+func (a *App) SelectCommandPath(current string) (string, error) {
+	if a.ctx == nil {
+		return "", fmt.Errorf("app context is not initialized")
+	}
+
+	selected, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title:           "Select Command (or type a path in File name)",
+		DefaultFilename: strings.TrimSpace(current),
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Command Files", Pattern: "*.exe;*.cmd;*.bat;*.com;*.ps1;*.vbs"},
+			{DisplayName: "All Files", Pattern: "*"},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return selected, nil
 }
