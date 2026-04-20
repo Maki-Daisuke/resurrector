@@ -116,6 +116,14 @@ func main() {
 	}
 	options.ConfigPath = configPath
 
+	autoStartManager, err := NewAutoStartManager(options)
+	if err != nil {
+		slog.Error("failed to initialize logon startup manager",
+			slog.String("component", "main"),
+			slog.Any("error", err),
+		)
+	}
+
 	// Initial config load
 	apps, err := util.LoadConfig(configPath)
 	if err != nil {
@@ -162,7 +170,7 @@ func main() {
 	go watchConfig(configPath, reconciler)
 
 	// Start tray loop (blocks until quit)
-	RunSystray(iconData, func() {
+	RunSystray(iconData, autoStartManager, func() {
 		err := ShowUI(reconciler, options)
 		if err != nil {
 			slog.Error("failed to show UI",
