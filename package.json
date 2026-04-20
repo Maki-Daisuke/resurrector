@@ -4,7 +4,7 @@
   "description": "A robust, lightweight process monitor and auto-restart tool for Windows. Built with Go and Wails/Svelte.",
   "private": true,
   "scripts": {
-    "prebuild": "shx mkdir -p build",
+    "prebuild": "shx mkdir -p build ui/build",
     "build:icons": "shx cp logo.png ui/build/appicon.png && shx touch ui/build/appicon.png && shx rm -f ui/build/windows/icon.ico ui/build/windows/icon.syso ui/build/windows/rsrc_windows_amd64.syso && cd core && go run github.com/tc-hib/go-winres@latest simply --icon ../logo.png",
     "build:core-tray-icon": "shx cp ui/build/windows/icon.ico core/icon.ico",
     "build:core": "npm run build:core-tray-icon && cd core && go build -ldflags=\"-H windowsgui\" -o ../build/resurrector.exe",
