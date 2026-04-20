@@ -26,6 +26,20 @@ By launching the UI as a **separate, disposable process**, Resurrector pays the 
 
 This separation also enforces a clean architectural boundary: the core **never writes** to `config.toml` and the UI **never manages processes**. Communication flows through the config file (UI → Core, via atomic writes and fsnotify) and through stdio-based IPC (Core → UI, for real-time status updates).
 
+## Why Core and UI Communicate Over STDIO
+
+The communication needs between the core and UI are intentionally narrow. The core launches the UI as its **child process**, pushes state updates while the window is open, and stops communicating when the window closes. This is not a general-purpose RPC system between independent long-lived services; it is a short-lived parent-child coordination channel.
+
+For that reason, **stdio is a better fit than either named pipes or sockets**: unlike those mechanisms, it does not require publishing a separately reachable IPC endpoint, and it fits Resurrector's architecture well for three reasons:
+
+- **Lifecycle coupling is automatic**: the channel exists only for that specific UI process instance.
+- **Failure detection is simple**: if the core exits, the pipe closes and the UI can shut down immediately.
+- **The protocol is one-way and small**: the UI only needs a stream of monitor state updates, not a rich bidirectional command channel.
+
+Most importantly, this minimizes vulnerability surface. Resurrector does **not** publish a named pipe or socket that could be contacted unintentionally by external processes. By keeping communication inside the already-established parent-child stdio channel, it avoids introducing a separately discoverable IPC endpoint and reduces the chance of bugs turning into externally reachable attack paths.
+
+Just as importantly, Resurrector does **not** want the UI-to-core control path to go through IPC at all. Configuration changes go through `config.toml`, which remains the Single Source of Truth. Using stdio only for transient status push keeps IPC narrow, keeps the core simple, and avoids creating a second state mutation interface alongside the config file.
+
 ## Why the Config File is TOML instead of XXX?
 
 On Windows, many applications have historically used **INI-style configuration files**. That convention matters: a user-edited config file should feel immediately familiar instead of looking like an application-specific mini-language.
