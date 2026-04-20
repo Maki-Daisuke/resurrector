@@ -1,6 +1,6 @@
 # Design Rationales
 
-This document records the reasoning behind key design decisions in Resurrector — the *why*, not just the *what*. For the architecture and implementation details, see [Design & Architecture](./design.md).
+This document records the reasoning behind key design decisions in Resurrector — the _why_, not just the _what_. For the architecture and implementation details, see [Design & Architecture](./design.md).
 
 ## Why Resurrector Exists
 
@@ -10,7 +10,7 @@ On Linux, tools like `systemd` provide robust process supervision out of the box
 
 The closest existing tool is [**"Restart on Crash"**](https://w-shadow.com/blog/2009/03/04/restart-on-crash/), but it takes a fundamentally different approach: it monitors whether a specific **executable file** (e.g. `notepad.exe`) is running. This works for simple cases but breaks down when the same executable hosts multiple unrelated applications.
 
-**Example:** Consider two separate Node.js applications — a dev server and a build watcher. Both run as `node.exe`. "Restart on Crash" cannot distinguish between them because it only sees the executable name. If one crashes, it has no way of knowing *which* application needs restarting, or whether the other `node.exe` instance is the one it should be monitoring.
+**Example:** Consider two separate Node.js applications — a dev server and a build watcher. Both run as `node.exe`. "Restart on Crash" cannot distinguish between them because it only sees the executable name. If one crashes, it has no way of knowing _which_ application needs restarting, or whether the other `node.exe` instance is the one it should be monitoring.
 
 Resurrector solves this by owning the **entire process lifecycle**. It spawns each monitored application as a child process bound to a **Windows Job Object**, giving it a unique identity tied to the specific command, arguments, and working directory — not just the executable name. This means two `node.exe` instances with different arguments are tracked as completely separate entities.
 
@@ -26,6 +26,16 @@ By launching the UI as a **separate, disposable process**, Resurrector pays the 
 
 This separation also enforces a clean architectural boundary: the core **never writes** to `config.toml` and the UI **never manages processes**. Communication flows through the config file (UI → Core, via atomic writes and fsnotify) and through stdio-based IPC (Core → UI, for real-time status updates).
 
+## Why the Config File is TOML instead of XXX?
+
+On Windows, many applications have historically used **INI-style configuration files**. That convention matters: a user-edited config file should feel immediately familiar instead of looking like an application-specific mini-language.
+
+Resurrector uses **TOML** because it preserves much of that INI-like feel while fixing the limitations of INI itself. Table-based structure, `key = value` assignments, and overall visual simplicity make it approachable to users who are already accustomed to editing Windows config files by hand.
+
+At the same time, TOML provides the expressiveness that plain INI lacks. Resurrector's config needs to represent booleans, integers, arrays such as `args`, and multiple named app entries in a way that is both structured and predictable. TOML supports that naturally without introducing much syntactic noise.
+
+Just as importantly, TOML avoids the ambiguity that comes with looser configuration formats. Resurrector treats `config.toml` as a declarative source of truth, so the format should be easy for humans to read while remaining straightforward for Go code to parse into a strictly typed schema. In that sense, TOML was chosen as a practical successor to the traditional Windows INI style: familiar in shape, but with enough structure and clarity for a modern config file.
+
 ## Why We Do Not Inspect Exit Codes
 
 ### The Premise: Monitored Apps Are "Always-On"
@@ -35,16 +45,16 @@ Resurrector's purpose is to keep **always-on applications** running. These are p
 Under this premise:
 
 - **Exit code 0 ("success")** does not mean "the app finished its job successfully." It means "the app stopped running, and it shouldn't have." A clean exit from a process that is supposed to run forever is just as much of a problem as a crash.
-- **Exit code non-zero ("failure")** is the more obvious case, but the *action* is the same: restart.
+- **Exit code non-zero ("failure")** is the more obvious case, but the _action_ is the same: restart.
 
 ### The Only Meaningful Distinction: Intentional vs. Unintentional
 
 Rather than classifying exits by their code, Resurrector classifies them by **who caused the exit**:
 
-| Exit cause | Action | How it's detected |
-| --- | --- | --- |
-| **Resurrector stopped the process** (user disabled it, config removed, app shutting down) | Do **not** restart | `stopChan` is closed before the process exits |
-| **The process exited on its own** (crash, runtime error, unexpected clean exit, etc.) | **Restart** | `WaitForMultipleObjects` signals the process handle |
+| Exit cause                                                                                | Action             | How it's detected                                   |
+| ----------------------------------------------------------------------------------------- | ------------------ | --------------------------------------------------- |
+| **Resurrector stopped the process** (user disabled it, config removed, app shutting down) | Do **not** restart | `stopChan` is closed before the process exits       |
+| **The process exited on its own** (crash, runtime error, unexpected clean exit, etc.)     | **Restart**        | `WaitForMultipleObjects` signals the process handle |
 
 This is the only distinction that matters. Exit codes are an application-level concern and carry no universal meaning that a process supervisor can reliably act on.
 
