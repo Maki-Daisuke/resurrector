@@ -14,7 +14,7 @@ Resurrector treats `config.toml` as a **declarative desired-state specification*
 2. **Idempotent Reconciliation**: Applying the same config file repeatedly produces the same result. The reconciler compares desired state vs. actual state and only performs necessary actions.
 3. **File-Watch Driven**: The core uses `fsnotify` to detect config file changes in real-time. No restart of the core process is required to pick up configuration changes.
 4. **Graceful Convergence**: When config changes, the core handles additions, removals, and modifications of entries gracefully — starting new processes, stopping removed ones, and restarting modified ones as needed.
-5. **Core is Read-Only**: The core process **never writes** to `config.toml`. It only reads and reacts. All config modifications are performed externally — either by the user editing the file directly or by the UI process writing to it.
+5. **Core is Read-Only After Bootstrap**: After startup initialization, the core process treats `config.toml` as read-only. Its only write is first-run bootstrap when the config file does not yet exist; after that it only reads and reacts. All ongoing config modifications are performed externally — either by the user editing the file directly or by the UI process writing to it.
 6. **Strict Lifecycle Ownership**: Resurrector entirely owns the lifecycle of the monitored processes. It launches them as child processes bound to a **Windows Job Object**. If Resurrector exits, all monitored processes are guaranteed to terminate with it.
 7. **Atomic Config Updates**: Modifications to `config.toml` (especially by the UI) must be performed atomically (e.g., write to a temporary file, then rename/move) to prevent the core from reading partially written files.
 
@@ -53,24 +53,27 @@ To minimize system resource consumption, Resurrector consists of two independent
 
 - **Role**: Steady presence in the system tray. Watches `config.toml` for changes (read-only) and reconciles monitored processes to match the desired state. By default it reads from `~/.config/resurrector/config.toml`, but accepts CLI flags such as `-f <path>`, `-log-file <path>`, and `-log-format <text|json>`.
 - **Technology**: Go (Pure), `energye/systray`, `golang.org/x/sys/windows`, `github.com/fsnotify/fsnotify`
-- **Features**: Does not have a UI; it continues to operate extremely lightly. When "Settings" is clicked from the system tray, it launches the UI process as a child process and passes runtime flags (`-f`, `-log-file`, `-log-format`) to keep behavior consistent. **Never writes to `config.toml`.**
+- **Features**: Does not have a UI; it continues to operate extremely lightly. When "Open Settings" is clicked from the system tray, it launches the UI process as a child process and passes runtime flags (`-f`, `-log-file`, `-log-format`) to keep behavior consistent. On first launch, if `config.toml` does not exist yet, it bootstraps the file with sample content.
 - **Process Management**: Uses Windows Job Objects (`CreateJobObject`, `AssignProcessToJobObject`) to bind spawned child processes to its own lifecycle. This ensures that any command (even ones that spawn further sub-processes like `npm run start`) and its entire process tree are cleanly terminated when the core requests a stop or when the core process itself exits.
+- **Process Lifetime Rules**: A session-local named mutex allows only one core instance per Windows session. A second launch shows an error dialog and exits without starting monitoring or a second tray icon.
+- **Windows Integration**: The tray menu can toggle logon auto-start for the current user by writing to `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 
 ### 2. UI Process (`resurrector-ui.exe`)
 
 - **Role**: Configuration screen for the user, real-time display of monitoring status. Provides a management interface to Create, Read, Update, and Delete (CRUD) entries in `config.toml` via a Wails bridge.
 - **Technology**: Go + Wails + Svelte (TypeScript)
-- **Features**: Uses a custom Wails logger. By default logs go to `STDERR`, and `STDOUT`/`STDIN` remain exclusively for JSON-RPC messaging (IPC); when `-log-file` is specified, logs are appended to that file instead. The UI **writes directly to `config.toml`** (using atomic writes) when the user makes configuration changes — the core detects these changes via fsnotify and reconciles automatically.
+- **Features**: Uses a custom Wails logger. By default logs go to `STDERR`; the core then uses the UI process's `STDIN` as a unidirectional line-based JSON status stream. When `-log-file` is specified, logs are appended to that file instead. The UI **writes directly to `config.toml`** (using atomic writes) when the user makes configuration changes — the core detects these changes via fsnotify and reconciles automatically.
 - **Config Bridge**: Implements a `config_bridge.go` that exposes an `AppConfig` DTO (Data Transfer Object) to the frontend. This DTO handles:
   - Field name mapping (e.g., camelCase for JSON/TypeScript, snake_case for TOML).
   - Argument formatting: Converting `[]string` from TOML into a single shell-like `string` for user-friendly editing, and parsing it back using `util.ParseArgs`.
+- **UI Conveniences**: Provides a native file dialog for choosing a command path, supports drag-and-drop registration of executable/script files, and derives accepted file extensions from the current Windows `PATHEXT` environment variable.
 - **Termination**: The process terminates when the window is closed.
 
 ### Inter-Process Communication (IPC)
 
 Communication between the core and UI processes follows two distinct paths:
 
-1. **Status Updates (Core → UI)**: **Unidirectional** via standard I/O (stdio) using a synchronous, line-based JSON stream. The core pushes process state updates (`MonitorStatus` JSON objects) to the UI.
+1. **Status Updates (Core → UI)**: **Unidirectional** via standard I/O (stdio) using a synchronous, line-based JSON stream written by the core to the child UI process's `STDIN`. The core pushes process state updates (`MonitorStatus` JSON objects) to the UI.
 2. **Configuration Changes (UI → Core via File)**: The UI does **not** send RPC commands back to the core to change state. Instead, it writes changes directly to `config.toml` using atomic operations (`util.SaveConfig`). The core picks up these changes via its `fsnotify` loop.
 
 This design keeps the core simple (read config, reconcile) and preserves the "config.toml as the Single Source of Truth" principle.
@@ -165,6 +168,14 @@ If the new config file is **invalid** (parse error, malformed TOML), the core:
 
 This ensures that a typo in the config file does not accidentally kill running processes.
 
+### Error Handling at Startup
+
+Startup is intentionally stricter than live reload:
+
+1. If `config.toml` does not exist, the core creates it with sample content and continues.
+2. If the initial config load fails after that (parse error, validation failure, unreadable file), the core shows a native Windows error dialog and exits.
+3. This prevents the tray from coming up in a partially initialized state with unknown monitoring behavior.
+
 ## Data Flow
 
 ```text
@@ -195,7 +206,7 @@ All config changes — whether from the user editing the file in a text editor o
 4. The reconciler compares desired state vs. actual state and converges.
 
 > [!NOTE]
-> The core process **never writes** to `config.toml`. The UI process handles config editing by writing to the file directly. This keeps the core's responsibility clean and simple: **read → reconcile → monitor**.
+> After initial bootstrap of a missing file, the core process does not write to `config.toml`. The UI process handles config editing by writing to the file directly. This keeps the core's steady-state responsibility clean and simple: **read → reconcile → monitor**.
 
 ## Per-Process Monitor Lifecycle
 

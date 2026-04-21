@@ -24,7 +24,7 @@ If the UI were bundled into the same process, the Wails runtime, the Svelte appl
 
 By launching the UI as a **separate, disposable process**, Resurrector pays the cost of the UI only when the user explicitly requests it. When the settings window is closed, the UI process terminates and all of its memory is reclaimed by the OS. The core continues running undisturbed.
 
-This separation also enforces a clean architectural boundary: the core **never writes** to `config.toml` and the UI **never manages processes**. Communication flows through the config file (UI → Core, via atomic writes and fsnotify) and through stdio-based IPC (Core → UI, for real-time status updates).
+This separation also enforces a clean architectural boundary: after first-run bootstrap of a missing file, the core does not write to `config.toml`, and the UI never manages processes. Communication flows through the config file (UI → Core, via atomic writes and fsnotify) and through stdio-based IPC (Core → UI, for real-time status updates).
 
 ## Why Core and UI Communicate Over STDIO
 

@@ -11,6 +11,7 @@ It is designed to ensure that critical applications remain running within the **
 - **Strict Lifecycle Control**: Resurrector completely owns the lifecycle of monitored apps. It spawns them as child processes bound to a **Windows Job Object**, guaranteeing that apps (and their subprocesses) cleanly terminate when stopped.
 - **Config-as-Code (SSoT)**: `config.toml` acts as the definitive Single Source of Truth. The core uses `fsnotify` to track changes in real-time and reconciles the system state automatically. Changes via the UI or external editors are applied instantly without restarting the core.
 - **Modern Management UI**: The configuration provides a user-friendly way to manage monitored applications. The UI only launches when called from the system tray and frees all memory when closed.
+- **Windows-Native Integration**: The tray menu can toggle auto-start at Windows sign-in for the current user, and the core enforces a single running instance per Windows session.
 - **Zero-Polling Monitoring**: Event-driven monitoring using Windows API (`WaitForSingleObject`). It does not waste CPU resources.
 - **Minimal Footprint**: The resident core process is written in pure Go and consumes only a few megabytes of memory.
 
@@ -52,7 +53,7 @@ enabled = false
 - `command` (String): The full path to the command or executable. **(Mandatory)**. If a relative path or just a command name (e.g., `npm`) is provided, Resurrector will attempt to resolve the absolute path using the system PATH.
 - `args` (Array of Strings): List of arguments to pass to the command. (Default: `[]`)
 - `cwd` (String): The working directory (current directory) for running the command. (Default: The directory where the resolved `command` is located)
-- `enabled` (Boolean): If `true`, starts monitoring on startup or UI request. **(Mandatory)**
+- `enabled` (Boolean): If `true`, starts monitoring on startup or UI request. If omitted, it defaults to `false`.
 - `hide_window` (Boolean): If `true`, launches the process in the background (hidden window). (Default: `false`)
 - `restart_delay_sec` (Integer): The wait time (seconds) before attempting a restart after detecting a process termination. (Default: `0`)
 - `max_retries` (Integer): Retry count limit for a crashing app. `0` means no retry; negative values mean infinite retry. (Default: `-1` / Infinite retry)
@@ -76,7 +77,27 @@ The following files will be generated in the `build/` directory:
 
 1. Run `build/resurrector.exe`.
 2. An icon will appear in the system tray.
-3. Right-click the icon and select "Settings" to launch the UI for configuring monitored applications.
+3. Right-click the icon and select "Open Settings" to launch the UI for configuring monitored applications.
+
+### Tray Menu
+
+- `Open Settings`: Launches the UI process. If the UI is already open, the core does not launch a second copy.
+- `Auto-start Resurrector`: Toggles Windows sign-in auto-start for the current user by updating `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
+- `Quit`: Stops all monitored processes owned by Resurrector and exits the core.
+
+### Startup Behavior
+
+- Only one core instance can run per Windows session. If you launch a second copy, Resurrector shows an error dialog and exits.
+- On first launch, if the config file does not exist, Resurrector creates it with sample content automatically.
+- If the config file is invalid during startup, Resurrector shows an error dialog and exits.
+- If the config file becomes invalid later while the core is already running, the current monitored state is kept and the change is ignored until the file is fixed.
+
+### UI Conveniences
+
+- The UI lets you edit `args` as a single shell-like string instead of a TOML string array.
+- You can browse for a command path with a native file dialog.
+- You can drag and drop an executable or script file onto the UI window to start creating a new app entry.
+- Accepted command/script file extensions follow the current Windows `PATHEXT` environment variable.
 
 ### CLI Options
 
