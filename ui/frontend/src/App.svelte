@@ -12,7 +12,7 @@
   } from "../wailsjs/go/main/App";
   import type { main } from "../wailsjs/go/models";
   import AgGridSvelte from "ag-grid-svelte";
-  import type { ColDef, GridApi, GridReadyEvent } from "ag-grid-community";
+  import type { ColDef } from "ag-grid-community";
   import "ag-grid-community/styles/ag-grid.css";
   import "ag-grid-community/styles/ag-theme-alpine.css";
 
@@ -33,7 +33,6 @@
   // State: process monitor table
   // ---------------------------------------------------------------------------
   let apps: Record<string, AppStateInfo> = {};
-  let gridApi: GridApi | null = null;
 
   onMount(() => {
     EventsOn("app_state_update", (dataStr: string) => {
@@ -61,10 +60,6 @@
   });
 
   $: appList = Object.values(apps);
-
-  function onGridReady(event: any) {
-    gridApi = event.detail.api;
-  }
 
   // ---------------------------------------------------------------------------
   // Cell renderers
@@ -163,11 +158,13 @@
       enabled: true,
       command: "",
       args: "",
+      stopCommand: "",
       cwd: "",
       restartDelaySec: 0,
       healthyTimeoutSec: 0,
       hideWindow: false,
       maxRetries: -1,
+      stopTimeoutSec: 5,
     } as main.AppConfig;
   }
 
@@ -363,7 +360,6 @@
         {columnDefs}
         {defaultColDef}
         rowSelection="single"
-        on:gridReady={onGridReady}
         onRowDoubleClicked={handleRowDoubleClick}
         overlayNoRowsTemplate="<span class='text-gray-500 font-medium'>Waiting for process connection...</span>"
       />
@@ -484,6 +480,24 @@
           />
         </div>
 
+        <div class="field field-full">
+          <label class="field-label" for="field-stop-command">
+            Stop Command
+            <span class="field-hint"
+              >Optional shell-style argv. Leave empty for automatic stop
+              detection. <code>{`{pid}`}</code> is replaced with the monitored
+              PID.</span
+            >
+          </label>
+          <input
+            id="field-stop-command"
+            class="field-input field-mono"
+            type="text"
+            bind:value={editForm.stopCommand}
+            placeholder={"taskkill /PID {pid} /T"}
+          />
+        </div>
+
         <!-- CWD -->
         <div class="field field-full">
           <label class="field-label" for="field-cwd">
@@ -541,6 +555,28 @@
                 on:change={() =>
                   (editForm.healthyTimeoutSec = clampInt(
                     editForm.healthyTimeoutSec,
+                    0,
+                    3600,
+                  ))}
+              />
+            </div>
+          </div>
+          <div class="field">
+            <label class="field-label" for="field-stop-timeout">
+              Stop Timeout (s)
+              <span class="field-hint">Default: 5</span>
+            </label>
+            <div class="number-input-wrap">
+              <input
+                id="field-stop-timeout"
+                class="field-input field-number"
+                type="number"
+                min="0"
+                max="3600"
+                bind:value={editForm.stopTimeoutSec}
+                on:change={() =>
+                  (editForm.stopTimeoutSec = clampInt(
+                    editForm.stopTimeoutSec,
                     0,
                     3600,
                   ))}
@@ -715,18 +751,6 @@
     margin: 0 0 4px;
     letter-spacing: -0.02em;
   }
-  .dialog-subtitle {
-    font-size: 0.78rem;
-    color: #64748b;
-    margin: 0;
-  }
-  .dialog-subtitle code {
-    font-family: "JetBrains Mono", "Cascadia Code", monospace;
-    background: rgba(255, 255, 255, 0.06);
-    padding: 1px 4px;
-    border-radius: 4px;
-  }
-
   /* ── Form ───────────────────────────────────────────────────────────────── */
   .dialog-form {
     padding: 20px 28px 24px;
@@ -746,8 +770,20 @@
   }
   .field-row {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: 12px;
+  }
+
+  @media (max-width: 960px) {
+    .field-row {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  @media (max-width: 640px) {
+    .field-row {
+      grid-template-columns: 1fr;
+    }
   }
 
   .field-label {

@@ -58,6 +58,26 @@ enabled = false
 - `restart_delay_sec` (Integer): The wait time (seconds) before attempting a restart after detecting a process termination. (Default: `0`)
 - `max_retries` (Integer): Retry count limit for a crashing app. `0` means no retry; negative values mean infinite retry. (Default: `-1` / Infinite retry)
 - `healthy_timeout_sec` (Integer): If the process runs for at least this many seconds before exiting, the restart counter is reset to 0. `0` disables that reset (the counter increments on every exit). (Default: `0`)
+- `stop_command` (Array of Strings): Optional shutdown command expressed as an argv-style array. The first element is the executable, and the remaining elements are passed as arguments. This is not shell-parsed. If shell features are needed, explicitly invoke a shell such as `cmd.exe /c ...` or `powershell.exe -Command ...`. The `{pid}` placeholder is replaced with the monitored root process PID before execution. (Default: `[]`)
+- `stop_timeout_sec` (Integer): How long Resurrector waits for graceful shutdown attempts before falling back to `TerminateProcess`. (Default: `5`)
+
+### Stop Behavior
+
+If `stop_command` is specified, Resurrector runs it first and waits up to `stop_timeout_sec` for the monitored process to exit.
+
+```toml
+["My App"]
+command = "myapp.exe"
+enabled = true
+stop_command = ["taskkill", "/PID", "{pid}", "/T"]
+stop_timeout_sec = 5
+```
+
+If `stop_command` is not specified, Resurrector chooses the best-effort graceful stop method automatically from runtime observation:
+
+1. If the target PID owns a non-console top-level window (excluding both the classic console host and ConPTY pseudo-console windows), post `WM_CLOSE`.
+2. Otherwise, send `CTRL_BREAK_EVENT` to the child's process group.
+3. If the process is still alive after `stop_timeout_sec`, call `TerminateProcess`.
 
 ## Build
 
@@ -94,7 +114,7 @@ The following files will be generated in the `build/` directory:
 
 ### UI Conveniences
 
-- The UI lets you edit `args` as a single shell-like string instead of a TOML string array.
+- The UI lets you edit `args` and `stop_command` as single shell-like strings instead of TOML string arrays.
 - You can browse for a command path with a native file dialog.
 - You can drag and drop an executable or script file onto the UI window to start creating a new app entry.
 - Accepted command/script file extensions follow the current Windows `PATHEXT` environment variable.

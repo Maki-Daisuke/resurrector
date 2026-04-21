@@ -5,11 +5,13 @@ export namespace main {
 	    enabled: boolean;
 	    command: string;
 	    args: string;
+	    stopCommand: string;
 	    cwd: string;
 	    restartDelaySec: number;
 	    healthyTimeoutSec: number;
 	    hideWindow: boolean;
 	    maxRetries: number;
+	    stopTimeoutSec: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppConfig(source);
@@ -21,11 +23,13 @@ export namespace main {
 	        this.enabled = source["enabled"];
 	        this.command = source["command"];
 	        this.args = source["args"];
+	        this.stopCommand = source["stopCommand"];
 	        this.cwd = source["cwd"];
 	        this.restartDelaySec = source["restartDelaySec"];
 	        this.healthyTimeoutSec = source["healthyTimeoutSec"];
 	        this.hideWindow = source["hideWindow"];
 	        this.maxRetries = source["maxRetries"];
+	        this.stopTimeoutSec = source["stopTimeoutSec"];
 	    }
 	}
 

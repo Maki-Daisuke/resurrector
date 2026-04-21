@@ -239,5 +239,19 @@ func hasIdentityChanged(current, desired util.App) bool {
 func hasMonitoringParamsChanged(current, desired util.App) bool {
 	return current.RestartDelaySec != desired.RestartDelaySec ||
 		current.HealthyTimeoutSec != desired.HealthyTimeoutSec ||
-		current.MaxRetries != desired.MaxRetries
+		current.MaxRetries != desired.MaxRetries ||
+		current.StopTimeoutSec != desired.StopTimeoutSec ||
+		!stringSlicesEqual(current.StopCommand, desired.StopCommand)
+}
+
+func stringSlicesEqual(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }

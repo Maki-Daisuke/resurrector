@@ -101,3 +101,23 @@ One might argue that exit codes could help distinguish "real crashes" from "inte
 3. **Resurrector already knows**: If Resurrector itself requested the stop (via `stopChan` / Job Object termination), it already knows not to restart. No exit code inspection is needed.
 
 The current design keeps the monitor simple, predictable, and runtime-agnostic.
+
+## Why Graceful Stop Prefers WM_CLOSE and CTRL_BREAK_EVENT over TerminateProcess
+
+When Resurrector needs to stop a monitored process (because the user disabled it, the entry was removed from `config.toml`, the config was modified in a way that requires a restart, or the core is shutting down), the ultimate fallback is always `TerminateProcess`. But Resurrector does not jump to it immediately. Instead, it first tries `WM_CLOSE` for processes that own a top-level window, and `CTRL_BREAK_EVENT` for console-attached processes, waiting up to `stop_timeout_sec` before escalating.
+
+The reason is simple: **`TerminateProcess` gives the target no opportunity to clean up.**
+
+`TerminateProcess` is a hard kill. The OS unmaps the process immediately, without running any user-mode code in the target. This means:
+
+- **Open files are not flushed**. Buffered writes held in the process's userspace (language runtime buffers, stdio buffers, application-level caches) are lost. Even files that the OS will eventually close can be left in an inconsistent on-disk state if the application was mid-write.
+- **`defer` / `atexit` / destructors do not run**. Language-level cleanup hooks — `defer` in Go, `finally` / `atexit` in Python, destructors in C++, `SIGTERM` handlers in Node.js — are all bypassed. Any invariant the application maintains through those hooks is violated.
+- **Child processes and temp files may be orphaned**. The Job Object guarantees descendant processes are killed, but temp files, lock files, named pipes, and similar artifacts on disk that a well-behaved shutdown would remove are left behind.
+- **Databases and stateful services may corrupt**. Embedded databases (SQLite, LevelDB, etc.) often rely on a shutdown sequence to checkpoint or release locks. A hard kill can leave them requiring recovery on next start, or in the worst case, corrupt.
+
+`WM_CLOSE` and `CTRL_BREAK_EVENT` are each the idiomatic "please shut down" signal for their respective kinds of Windows programs:
+
+- **`WM_CLOSE`** is what the OS sends when the user clicks the window's close button. GUI applications typically handle it by running their normal shutdown path — saving state, confirming unsaved changes (or, in well-behaved always-on apps, silently exiting cleanly).
+- **`CTRL_BREAK_EVENT`** is the closest Windows equivalent to a Unix `SIGTERM` for console programs. Runtimes like Node.js, Go, and Python translate it into a signal/event their application code can catch and respond to.
+
+Neither is guaranteed to succeed — an application may ignore `WM_CLOSE`, or a console app may not install a control handler. That is exactly why `stop_timeout_sec` exists: Resurrector asks nicely, gives the application a bounded window to comply, and then escalates to `TerminateProcess` only if the graceful path fails. The design goal is **graceful first, forceful fallback** — respecting the application's cleanup path whenever possible, while still guaranteeing that desired state eventually converges.

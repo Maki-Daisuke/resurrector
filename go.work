@@ -2,6 +2,8 @@ go 1.26.1
 
 use (
 	./core
+	./misc/alert_on_wm_close
+	./misc/wait_for_os_interrupt
 	./ui
 	./util
 )

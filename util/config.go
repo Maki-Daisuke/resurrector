@@ -17,11 +17,13 @@ type App struct {
 	Enabled           bool     `toml:"enabled"`
 	Command           string   `toml:"command"`
 	Args              []string `toml:"args"`
+	StopCommand       []string `toml:"stop_command"`
 	CWD               string   `toml:"cwd"`
 	RestartDelaySec   int      `toml:"restart_delay_sec"`
 	HealthyTimeoutSec int      `toml:"healthy_timeout_sec"`
 	HideWindow        bool     `toml:"hide_window"`
 	MaxRetries        int      `toml:"max_retries"`
+	StopTimeoutSec    int      `toml:"stop_timeout_sec"`
 }
 
 // ValidateAndApplyDefaults enforces mandatory fields and sets default values.
@@ -30,24 +32,30 @@ func (a *App) ValidateAndApplyDefaults() error {
 		return fmt.Errorf("command is mandatory")
 	}
 
-	// Try to resolve the full path if it's not absolute
-	if !filepath.IsAbs(a.Command) {
-		fullPath, err := exec.LookPath(a.Command)
-		if err != nil {
-			return fmt.Errorf("command not found in PATH: %s", a.Command)
-		}
-		absPath, err := filepath.Abs(fullPath)
-		if err != nil {
-			return fmt.Errorf("could not get absolute path for command: %s", a.Command)
-		}
-		a.Command = absPath
+	resolvedCommand, err := resolveCommandPath(a.Command)
+	if err != nil {
+		return err
 	}
+	a.Command = resolvedCommand
 
 	if a.Args == nil {
 		a.Args = []string{}
 	}
+	if a.StopCommand == nil {
+		a.StopCommand = []string{}
+	}
+	if len(a.StopCommand) > 0 {
+		resolvedStopCommand, err := resolveCommandPath(a.StopCommand[0])
+		if err != nil {
+			return fmt.Errorf("invalid stop_command: %w", err)
+		}
+		a.StopCommand[0] = resolvedStopCommand
+	}
 	if a.CWD == "" {
 		a.CWD = filepath.Dir(a.Command)
+	}
+	if a.StopTimeoutSec < 0 {
+		return fmt.Errorf("stop_timeout_sec must be >= 0")
 	}
 	return nil
 }
@@ -74,6 +82,7 @@ func LoadConfig(path string) (map[string]*App, error) {
 	//
 	// Example: max_retries omitted => default infinite retry (-1).
 	//          max_retries = 0     => explicit "no retry".
+	//          stop_timeout_sec omitted => default graceful timeout (5).
 	var rawTables map[string]map[string]any
 	if err := toml.Unmarshal(b, &rawTables); err != nil {
 		if de, ok := err.(*toml.DecodeError); ok {
@@ -88,6 +97,9 @@ func LoadConfig(path string) (map[string]*App, error) {
 			if _, ok := table["max_retries"]; !ok {
 				// Default: infinite retries when omitted.
 				app.MaxRetries = -1
+			}
+			if _, ok := table["stop_timeout_sec"]; !ok {
+				app.StopTimeoutSec = 5
 			}
 		} else {
 			panic("Should not happen")
@@ -145,6 +157,22 @@ func SaveConfig(path string, apps map[string]*App) error {
 
 	ok = true
 	return nil
+}
+
+func resolveCommandPath(command string) (string, error) {
+	if filepath.IsAbs(command) {
+		return command, nil
+	}
+
+	fullPath, err := exec.LookPath(command)
+	if err != nil {
+		return "", fmt.Errorf("command not found in PATH: %s", command)
+	}
+	absPath, err := filepath.Abs(fullPath)
+	if err != nil {
+		return "", fmt.Errorf("could not get absolute path for command: %s", command)
+	}
+	return absPath, nil
 }
 
 // ParseArgs splits a shell-like argument string into a slice of strings.

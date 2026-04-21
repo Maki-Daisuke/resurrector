@@ -65,7 +65,7 @@ To minimize system resource consumption, Resurrector consists of two independent
 - **Features**: Uses a custom Wails logger. By default logs go to `STDERR`; the core then uses the UI process's `STDIN` as a unidirectional line-based JSON status stream. When `-log-file` is specified, logs are appended to that file instead. The UI **writes directly to `config.toml`** (using atomic writes) when the user makes configuration changes — the core detects these changes via fsnotify and reconciles automatically.
 - **Config Bridge**: Implements a `config_bridge.go` that exposes an `AppConfig` DTO (Data Transfer Object) to the frontend. This DTO handles:
   - Field name mapping (e.g., camelCase for JSON/TypeScript, snake_case for TOML).
-  - Argument formatting: Converting `[]string` from TOML into a single shell-like `string` for user-friendly editing, and parsing it back using `util.ParseArgs`.
+  - Command formatting: Converting `[]string` fields such as `args` and `stop_command` from TOML into single shell-like strings for user-friendly editing, and parsing them back using `util.ParseArgs`.
 - **UI Conveniences**: Provides a native file dialog for choosing a command path, supports drag-and-drop registration of executable/script files, and derives accepted file extensions from the current Windows `PATHEXT` environment variable.
 - **Termination**: The process terminates when the window is closed.
 
@@ -143,13 +143,13 @@ To determine whether an entry's config has been "modified" (requiring restart), 
 
 - `command`, `args`, `cwd` — The process identity
 - `hide_window` — Requires restart to change window visibility
-- `restart_delay_sec`, `healthy_timeout_sec`, `max_retries` — Can be updated in-place (hot-reload) without restarting the monitored process
+- `restart_delay_sec`, `healthy_timeout_sec`, `max_retries`, `stop_command`, `stop_timeout_sec` — Can be updated in-place (hot-reload) without restarting the monitored process
 
 > [!TIP]
 > **Automated Resolution**: If `command` is just a binary name (e.g., `npm`), it is resolved to an absolute path. If `cwd` is omitted, it defaults to the directory of the `command`. This resolution happens during the config load phase, ensuring the reconciler always works with canonical paths.
 >
 > [!NOTE]
-> Fields like `restart_delay_sec`, `healthy_timeout_sec`, and `max_retries` are **monitoring parameters**, not process identity fields. Changing them does NOT require stopping and restarting the monitored process. They can be hot-reloaded by updating the in-memory config reference.
+> Fields like `restart_delay_sec`, `healthy_timeout_sec`, `max_retries`, `stop_command`, and `stop_timeout_sec` are **monitoring parameters**, not process identity fields. Changing them does NOT require stopping and restarting the monitored process. They can be hot-reloaded by updating the in-memory config reference.
 
 ### File Editing & Debouncing
 
@@ -238,6 +238,81 @@ Each monitored process entry runs through the following state machine:
          └──────────┘
 ```
 
+## Stop Command and Automatic Stop Detection
+
+### Motivation
+
+Today, Resurrector has a single stop behavior: it forcefully stops the monitored process tree so that desired state converges reliably. This is simple and robust, but some applications could shut down more gracefully if Resurrector first tried an application-appropriate stop request and only called `TerminateProcess` after a timeout.
+
+The previous `stop_mode` idea required the user to classify the target as "GUI" or "console". That classification leaks implementation detail into the config and becomes error-prone for wrappers, launchers, and mixed-behavior applications. A better design is:
+
+- Let the user supply an explicit shutdown command when one is known.
+- Otherwise, let Resurrector choose the best-effort graceful mechanism automatically from observed runtime state.
+
+### Config Fields
+
+```toml
+["My App"]
+command = "myapp.exe"
+enabled = true
+stop_command = ["taskkill", "/PID", "{pid}", "/T"]
+stop_timeout_sec = 5
+```
+
+- `stop_command` (Array of Strings): Optional shutdown command expressed as an argv-style array. The first element is the executable and the remaining elements are arguments. The value is not shell-parsed.
+- `stop_timeout_sec` (Integer): How long Resurrector waits for a graceful stop request to succeed before falling back to an explicit `TerminateProcess`. Default: `5`.
+- `{pid}`: Placeholder expanded to the monitored root process PID before `stop_command` is executed.
+
+### Semantics
+
+- If `stop_command` is configured, Resurrector executes it first and then waits up to `stop_timeout_sec` for the monitored process to exit.
+- If `stop_command` is omitted, Resurrector chooses the best-effort graceful stop method automatically from runtime observation.
+- In every case, if the process is still alive after the timeout, Resurrector calls `TerminateProcess` to guarantee convergence.
+
+### Stop Flow
+
+```text
+STOP requested
+    |
+    v
+is stop_command configured?
+    |
+    +--> yes
+    |      -> expand placeholders (for now: {pid})
+    |      -> run stop_command
+    |      -> wait stop_timeout_sec
+    |      -> if exited: success
+    |      -> else: call TerminateProcess
+    |
+    +--> no
+           -> inspect runtime state
+           -> if non-console top-level window exists: post WM_CLOSE
+           -> else: try CTRL_BREAK_EVENT
+           -> wait stop_timeout_sec
+           -> if exited: success
+           -> else: call TerminateProcess
+```
+
+### Design Notes
+
+- `stop_command` should be modeled as `[]string`, not a single string, so config stays unambiguous and Windows quoting rules remain explicit.
+- `stop_command` should be treated as argv, not shell syntax. If the user needs shell features, they should explicitly invoke `cmd.exe` or `powershell.exe`.
+- The success condition of `stop_command` is not its exit code alone; the monitored process must actually exit.
+- Automatic detection should be based on runtime observation rather than PE subsystem metadata alone. In particular, top-level window enumeration is more reliable than trying to classify the original command line statically.
+- `WM_CLOSE` targeting should exclude both the classic `ConsoleWindowClass` and the ConPTY-era `PseudoConsoleWindow` class, so that a console host does not accidentally become the preferred stop target for a console-oriented process.
+- `CTRL_BREAK_EVENT` remains narrower than Unix `SIGTERM`; it only works under specific console/process-group conditions, so it should be a best-effort fallback inside auto detection rather than a user-exposed mode.
+- Even with graceful modes, an explicit `TerminateProcess` remains the final convergence mechanism. The design goal is **graceful first, forceful fallback**, not graceful-only shutdown.
+
+### CTRL_BREAK_EVENT Delivery Details
+
+To make `CTRL_BREAK_EVENT` actually reach the target child without side effects on the core process or other children, the implementation relies on three coordinated Windows behaviors:
+
+1. **Child spawn flags**: Every monitored child is started with `CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP`. Creating a new process group means the child's process-group ID is its own PID, and signals targeted at that group do not leak to the core process or to unrelated siblings.
+2. **Targeted group, not group 0**: `GenerateConsoleCtrlEvent` is invoked with `dwProcessGroupId = child PID`, not `0`. This confines the event to the child and its descendants, so the core process does not need to install a `SetConsoleCtrlHandler` filter to ignore its own BREAK.
+3. **Console attach handshake**: Before sending the event, the core calls `FreeConsole` (detach from any prior console) and then `AttachConsole(child PID)`. `GenerateConsoleCtrlEvent` requires the caller to share a console with the target. The attach is held for the full `stop_timeout_sec` window and released only after the child exits or the timeout elapses; detaching earlier can cause the event to be lost.
+
+Because a Windows process can only be attached to **one** console at a time (the attach is per-process, not per-thread), concurrent `sendCtrlBreak` calls would race for the shared console state. The implementation serializes console attach/BREAK/detach across the package with a single mutex (`consoleAttachMu`). When many monitored children are stopped simultaneously, their `CTRL_BREAK_EVENT` deliveries run sequentially — each call waiting up to `stop_timeout_sec` — before escalating to `TerminateProcess`.
+
 ## Directory Structure
 
 ```text
@@ -246,7 +321,8 @@ Each monitored process entry runs through the following state machine:
 ├── core/                   # Resident core process (Pure Go)
 │   ├── main.go             # Entry point, fsnotify watcher setup
 │   ├── reconciler.go       # Reconciliation logic (desired vs actual state)
-│   ├── monitor.go          # Per-process monitoring (start, attach, wait)
+│   ├── monitor.go          # Per-process monitoring (start, wait, graceful stop via WM_CLOSE / CTRL_BREAK_EVENT / TerminateProcess)
+│   ├── autostart.go        # Windows logon auto-start toggle (HKCU Run key)
 │   ├── tray.go             # System tray control
 │   └── ipc.go              # UI process communication control
 ├── ui/                     # UI process (Wails)
@@ -258,6 +334,8 @@ Each monitored process entry runs through the following state machine:
 │   ├── config.go           # TOML parsing, Atomic writes, Shell-like arg parsing
 │   ├── flag.go             # Shared CLI flag parsing and config-path normalization
 │   └── logger.go           # Shared slog setup (output destination and format)
+├── doc/                    # Design docs and rationales
+├── misc/                   # Standalone test programs for verifying stop behavior (e.g. wait_for_os_interrupt, alert_on_wm_close)
 ├── config.example.toml     # Sample configuration file
 └── package.json            # Build scripts (npm)
 ```

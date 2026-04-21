@@ -14,11 +14,13 @@ type AppConfig struct {
 	Enabled           bool   `json:"enabled"`
 	Command           string `json:"command"`
 	Args              string `json:"args"` // Shell-formatted, e.g. `/c "hello world" --debug`
+	StopCommand       string `json:"stopCommand"`
 	CWD               string `json:"cwd"`
 	RestartDelaySec   int    `json:"restartDelaySec"`
 	HealthyTimeoutSec int    `json:"healthyTimeoutSec"`
 	HideWindow        bool   `json:"hideWindow"`
 	MaxRetries        int    `json:"maxRetries"`
+	StopTimeoutSec    int    `json:"stopTimeoutSec"`
 }
 
 // GetFullConfig reads config.toml and returns all app entries as AppConfig DTOs.
@@ -39,11 +41,13 @@ func (a *App) GetFullConfig() (map[string]AppConfig, error) {
 			Enabled:           app.Enabled,
 			Command:           app.Command,
 			Args:              util.FormatArgs(app.Args),
+			StopCommand:       util.FormatArgs(app.StopCommand),
 			CWD:               app.CWD,
 			RestartDelaySec:   app.RestartDelaySec,
 			HealthyTimeoutSec: app.HealthyTimeoutSec,
 			HideWindow:        app.HideWindow,
 			MaxRetries:        app.MaxRetries,
+			StopTimeoutSec:    app.StopTimeoutSec,
 		}
 	}
 	return result, nil
@@ -60,6 +64,10 @@ func (a *App) UpdateAppConfig(oldName string, cfg AppConfig) error {
 	parsedArgs, err := util.ParseArgs(cfg.Args)
 	if err != nil {
 		return fmt.Errorf("parsing args: %w", err)
+	}
+	parsedStopCommand, err := util.ParseArgs(cfg.StopCommand)
+	if err != nil {
+		return fmt.Errorf("parsing stop command: %w", err)
 	}
 
 	// Load the current config to preserve all other entries.
@@ -78,11 +86,13 @@ func (a *App) UpdateAppConfig(oldName string, cfg AppConfig) error {
 		Enabled:           cfg.Enabled,
 		Command:           cfg.Command,
 		Args:              parsedArgs,
+		StopCommand:       parsedStopCommand,
 		CWD:               cfg.CWD,
 		RestartDelaySec:   cfg.RestartDelaySec,
 		HealthyTimeoutSec: cfg.HealthyTimeoutSec,
 		HideWindow:        cfg.HideWindow,
 		MaxRetries:        cfg.MaxRetries,
+		StopTimeoutSec:    cfg.StopTimeoutSec,
 	}
 
 	if err := util.SaveConfig(a.configPath, apps); err != nil {
