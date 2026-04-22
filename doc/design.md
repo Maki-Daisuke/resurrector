@@ -302,7 +302,7 @@ Because a Windows process can only be attached to **one** console at a time (the
 ├── doc/                    # Design docs and rationales
 ├── misc/                   # Standalone test programs for verifying stop behavior (e.g. wait_for_os_interrupt, alert_on_wm_close)
 ├── config.example.toml     # Sample configuration file
-└── package.json            # Build scripts (npm)
+└── package.json            # Build scripts (pnpm)
 ```
 
 ## Development
@@ -311,4 +311,5 @@ Because a Windows process can only be attached to **one** console at a time (the
 
 - Go 1.26+
 - Node.js 22+ (LTS recommended)
+- pnpm (`npm install -g pnpm` or see https://pnpm.io/installation)
 - Wails CLI (`go install github.com/wailsapp/wails/v2/cmd/wails@latest`)

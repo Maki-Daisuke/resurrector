@@ -26,7 +26,11 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: "24"
-          cache: npm
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
 
       - name: Install Wails CLI
         shell: pwsh
@@ -35,10 +39,10 @@ jobs:
           "$((go env GOPATH))\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Build binaries
-        run: npm run build
+        run: pnpm run build
 
       - name: Package release assets
         shell: pwsh

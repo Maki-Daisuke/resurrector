@@ -104,8 +104,8 @@ If `stop_command` is not specified, Resurrector chooses the best-effort graceful
 To build the entire project, run the following commands in the root directory:
 
 ```bash
-npm install
-npm run build
+pnpm install
+pnpm run build
 ```
 
 The following files will be generated in the `build/` directory:
@@ -151,6 +151,7 @@ The following files will be generated in the `build/` directory:
 
 - Go 1.26+
 - Node.js 22+ (LTS recommended)
+- pnpm (`npm install -g pnpm` or see https://pnpm.io/installation)
 - Wails CLI (`go install github.com/wailsapp/wails/v2/cmd/wails@latest`)
 
 ## License
