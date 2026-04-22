@@ -480,24 +480,6 @@
           />
         </div>
 
-        <div class="field field-full">
-          <label class="field-label" for="field-stop-command">
-            Stop Command
-            <span class="field-hint"
-              >Optional shell-style argv. Leave empty for automatic stop
-              detection. <code>{`{pid}`}</code> is replaced with the monitored
-              PID.</span
-            >
-          </label>
-          <input
-            id="field-stop-command"
-            class="field-input field-mono"
-            type="text"
-            bind:value={editForm.stopCommand}
-            placeholder={"taskkill /PID {pid} /T"}
-          />
-        </div>
-
         <!-- CWD -->
         <div class="field field-full">
           <label class="field-label" for="field-cwd">
@@ -515,8 +497,70 @@
           />
         </div>
 
-        <!-- Numeric fields row -->
+        <!-- Checkboxes: Hide Window / Enabled -->
+        <div class="checkbox-row">
+          <label class="checkbox-label" for="field-hide-window">
+            <input
+              id="field-hide-window"
+              type="checkbox"
+              class="checkbox"
+              bind:checked={editForm.hideWindow}
+            />
+            <span>Hide Window</span>
+          </label>
+          <label class="checkbox-label" for="field-enabled">
+            <input
+              id="field-enabled"
+              type="checkbox"
+              class="checkbox"
+              bind:checked={editForm.enabled}
+            />
+            <span>Enabled</span>
+          </label>
+        </div>
+
+        <!-- Stop Command -->
+        <div class="field field-full">
+          <label class="field-label" for="field-stop-command">
+            Stop Command
+            <span class="field-hint"
+              >Optional shell-style argv. Leave empty for automatic stop
+              detection. <code>{`{pid}`}</code> is replaced with the monitored PID.</span
+            >
+          </label>
+          <input
+            id="field-stop-command"
+            class="field-input field-mono"
+            type="text"
+            bind:value={editForm.stopCommand}
+            placeholder={"taskkill /PID {pid} /T"}
+          />
+        </div>
+
+        <!-- Numeric fields row: Stop Timeout / Restart Delay -->
         <div class="field-row">
+          <div class="field">
+            <label class="field-label" for="field-stop-timeout">
+              Stop Timeout (s)
+              <span class="field-hint">Default: 5</span>
+            </label>
+            <div class="number-input-wrap">
+              <input
+                id="field-stop-timeout"
+                class="field-input field-number"
+                type="number"
+                min="0"
+                max="3600"
+                bind:value={editForm.stopTimeoutSec}
+                on:change={() =>
+                  (editForm.stopTimeoutSec = clampInt(
+                    editForm.stopTimeoutSec,
+                    0,
+                    3600,
+                  ))}
+              />
+            </div>
+          </div>
           <div class="field">
             <label class="field-label" for="field-restart-delay">
               Restart Delay (s)
@@ -535,6 +579,32 @@
                     editForm.restartDelaySec,
                     0,
                     3600,
+                  ))}
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- Numeric fields row: Max Retries / Healthy Timeout -->
+        <div class="field-row">
+          <div class="field">
+            <label class="field-label" for="field-max-retries">
+              Max Retries
+              <span class="field-hint">0 = no retry, &lt;0 = infinite</span>
+            </label>
+            <div class="number-input-wrap">
+              <input
+                id="field-max-retries"
+                class="field-input field-number"
+                type="number"
+                min="-1"
+                max="999"
+                bind:value={editForm.maxRetries}
+                on:change={() =>
+                  (editForm.maxRetries = clampInt(
+                    editForm.maxRetries,
+                    -1,
+                    999,
                   ))}
               />
             </div>
@@ -561,72 +631,6 @@
               />
             </div>
           </div>
-          <div class="field">
-            <label class="field-label" for="field-stop-timeout">
-              Stop Timeout (s)
-              <span class="field-hint">Default: 5</span>
-            </label>
-            <div class="number-input-wrap">
-              <input
-                id="field-stop-timeout"
-                class="field-input field-number"
-                type="number"
-                min="0"
-                max="3600"
-                bind:value={editForm.stopTimeoutSec}
-                on:change={() =>
-                  (editForm.stopTimeoutSec = clampInt(
-                    editForm.stopTimeoutSec,
-                    0,
-                    3600,
-                  ))}
-              />
-            </div>
-          </div>
-          <div class="field">
-            <label class="field-label" for="field-max-retries">
-              Max Retries
-              <span class="field-hint">0 = no retry, &lt;0 = infinite</span>
-            </label>
-            <div class="number-input-wrap">
-              <input
-                id="field-max-retries"
-                class="field-input field-number"
-                type="number"
-                min="-1"
-                max="999"
-                bind:value={editForm.maxRetries}
-                on:change={() =>
-                  (editForm.maxRetries = clampInt(
-                    editForm.maxRetries,
-                    -1,
-                    999,
-                  ))}
-              />
-            </div>
-          </div>
-        </div>
-
-        <!-- Checkboxes -->
-        <div class="checkbox-row">
-          <label class="checkbox-label" for="field-hide-window">
-            <input
-              id="field-hide-window"
-              type="checkbox"
-              class="checkbox"
-              bind:checked={editForm.hideWindow}
-            />
-            <span>Hide Window</span>
-          </label>
-          <label class="checkbox-label" for="field-enabled">
-            <input
-              id="field-enabled"
-              type="checkbox"
-              class="checkbox"
-              bind:checked={editForm.enabled}
-            />
-            <span>Enabled</span>
-          </label>
         </div>
 
         <!-- Error message -->
