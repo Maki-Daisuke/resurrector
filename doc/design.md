@@ -150,6 +150,15 @@ File-system events can fire multiple times for a single save operation (especial
 > [!WARNING]
 > Because `fsnotify` can trigger before a file is completely written, **Atomic Writes** are strongly required. When the UI or an external tool updates `config.toml`, it should write to a `.tmp` file first and perform an atomic rename/move. The core's debouncer should also handle occasional "File in use / Access Denied" errors gracefully by retrying after a short delay.
 
+### Save Format (Minimal & Stable Order)
+
+`util.SaveConfig` writes `config.toml` so that it stays **human-friendly** and **diff-friendly** even when the UI is the one doing the writing:
+
+- **Default values are omitted.** Any field equal to its documented default (e.g. `enabled = false`, `max_retries = -1`, `stop_timeout_sec = 5`) is not written. Only `command` is always present because it is mandatory and has no default. This keeps entries written by the UI visually close to the minimal entries a user would hand-write. `max_retries = 0` is a deliberately meaningful value ("no retry") and is distinct from the default, so it is written when set.
+- **Fields are written in a fixed, semantically meaningful order** — `command`, `args`, `cwd`, `enabled`, `hide_window`, `stop_command`, `stop_args`, `stop_timeout_sec`, `restart_delay_sec`, `max_retries`, `healthy_timeout_sec`. `go-toml/v2` sorts map keys alphabetically but preserves struct field declaration order, so `SaveConfig` marshals each entry through a dedicated struct (`appTOML`) whose field order defines the on-disk order. Table entries (`[app-name]` headers) remain sorted alphabetically by name, which is also deterministic.
+
+Together these two rules give round-trip stability: saving a config that was just loaded produces byte-identical output up to the user's own comments and whitespace, which minimises fsnotify churn and keeps version-controlled configs reviewable.
+
 ### Error Handling on Config Reload
 
 If the new config file is **invalid** (parse error, malformed TOML), the core:

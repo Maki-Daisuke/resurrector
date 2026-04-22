@@ -141,7 +141,6 @@ func (a *App) ResolvedCWD() (string, error) {
 	return filepath.Dir(resolvedCommand), nil
 }
 
-
 // LoadConfig reads the configuration file from the given path and parses it.
 // Returns a map of app name → App config. If the file is invalid TOML,
 // an error is returned; the caller should keep the current state unchanged.
@@ -214,7 +213,7 @@ func SaveConfig(path string, apps map[string]*App) error {
 		}
 	}()
 
-	b, err := toml.Marshal(apps)
+	b, err := toml.Marshal(marshalApps(apps))
 	if err != nil {
 		return fmt.Errorf("marshaling config to TOML: %w", err)
 	}
@@ -237,6 +236,75 @@ func SaveConfig(path string, apps map[string]*App) error {
 
 	ok = true
 	return nil
+}
+
+// marshalApps converts apps into a TOML-ready representation that
+//   - omits fields equal to their documented default, so the on-disk config
+//     stays minimal (mirrors what LoadConfig treats as "field omitted");
+//   - preserves a fixed field order within each table. go-toml/v2 walks
+//     struct fields in declaration order, so defining appTOML below fixes
+//     the order of keys in the saved file regardless of map iteration.
+//
+// Command is always written because it is mandatory and has no default.
+type appTOML struct {
+	Command           string   `toml:"command"`
+	Args              []string `toml:"args,omitempty"`
+	CWD               *string  `toml:"cwd,omitempty"`
+	Enabled           *bool    `toml:"enabled,omitempty"`
+	HideWindow        *bool    `toml:"hide_window,omitempty"`
+	StopCommand       *string  `toml:"stop_command,omitempty"`
+	StopArgs          []string `toml:"stop_args,omitempty"`
+	StopTimeoutSec    *int     `toml:"stop_timeout_sec,omitempty"`
+	RestartDelaySec   *int     `toml:"restart_delay_sec,omitempty"`
+	MaxRetries        *int     `toml:"max_retries,omitempty"`
+	HealthyTimeoutSec *int     `toml:"healthy_timeout_sec,omitempty"`
+}
+
+func marshalApps(apps map[string]*App) map[string]appTOML {
+	out := make(map[string]appTOML, len(apps))
+	for name, app := range apps {
+		t := appTOML{Command: app.Command}
+		if app.Enabled {
+			v := true
+			t.Enabled = &v
+		}
+		if len(app.Args) > 0 {
+			t.Args = app.Args
+		}
+		if app.CWD != "" {
+			v := app.CWD
+			t.CWD = &v
+		}
+		if app.HideWindow {
+			v := true
+			t.HideWindow = &v
+		}
+		if app.RestartDelaySec != 0 {
+			v := app.RestartDelaySec
+			t.RestartDelaySec = &v
+		}
+		if app.HealthyTimeoutSec != 0 {
+			v := app.HealthyTimeoutSec
+			t.HealthyTimeoutSec = &v
+		}
+		if app.MaxRetries != -1 {
+			v := app.MaxRetries
+			t.MaxRetries = &v
+		}
+		if app.StopCommand != "" {
+			v := app.StopCommand
+			t.StopCommand = &v
+		}
+		if len(app.StopArgs) > 0 {
+			t.StopArgs = app.StopArgs
+		}
+		if app.StopTimeoutSec != 5 {
+			v := app.StopTimeoutSec
+			t.StopTimeoutSec = &v
+		}
+		out[name] = t
+	}
+	return out
 }
 
 func resolveCommandPath(command string) (string, error) {

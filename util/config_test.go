@@ -3,6 +3,7 @@ package util
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -134,4 +135,167 @@ func TestValidateAndApplyDefaultsPreservesEnvVarsAndRelativePaths(t *testing.T) 
 	if resolvedArgs[0] != "--value=from-env" || resolvedArgs[1] != "--pid=$" {
 		t.Fatalf("ResolvedArgs = %#v", resolvedArgs)
 	}
+}
+
+func TestSaveConfigOmitsDefaultValues(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+
+	apps := map[string]*App{
+		"minimal": {
+			Command:        `C:\bin\app.exe`,
+			Args:           []string{},
+			StopArgs:       []string{},
+			MaxRetries:     -1, // default
+			StopTimeoutSec: 5,  // default
+		},
+		"explicit": {
+			Command:           `C:\bin\other.exe`,
+			Enabled:           true,
+			Args:              []string{"--flag"},
+			CWD:               `C:\work`,
+			HideWindow:        true,
+			RestartDelaySec:   3,
+			HealthyTimeoutSec: 60,
+			MaxRetries:        0, // explicit "no retry" — must be written
+			StopCommand:       "taskkill",
+			StopArgs:          []string{"/PID", "${PID}"},
+			StopTimeoutSec:    10,
+		},
+	}
+
+	if err := SaveConfig(configPath, apps); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	b, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read saved config: %v", err)
+	}
+	got := string(b)
+
+	// Default-valued keys must not appear in the [minimal] block.
+	for _, key := range []string{"args", "cwd", "enabled", "hide_window", "restart_delay_sec", "healthy_timeout_sec", "max_retries", "stop_command", "stop_args", "stop_timeout_sec"} {
+		marker := "\n" + key + " ="
+		minimalStart := indexAfter(got, "[minimal]")
+		minimalEnd := len(got)
+		if next := indexAfter(got[minimalStart:], "\n["); next >= 0 {
+			minimalEnd = minimalStart + next
+		}
+		if containsWithin(got, marker, minimalStart, minimalEnd) {
+			t.Errorf("default key %q was written in [minimal] block:\n%s", key, got)
+		}
+	}
+
+	// The explicit entry must round-trip every non-default field.
+	expected := []string{
+		`command = 'C:\bin\other.exe'`,
+		"enabled = true",
+		`args = ['--flag']`,
+		`cwd = 'C:\work'`,
+		"hide_window = true",
+		"restart_delay_sec = 3",
+		"healthy_timeout_sec = 60",
+		"max_retries = 0",
+		"stop_command = 'taskkill'",
+		`stop_args = ['/PID', '${PID}']`,
+		"stop_timeout_sec = 10",
+	}
+	for _, line := range expected {
+		if !strings.Contains(got, line) {
+			t.Errorf("missing %q in saved config:\n%s", line, got)
+		}
+	}
+
+	// Saved file must round-trip through LoadConfig identically to the input.
+	loaded, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig on saved file: %v", err)
+	}
+	if loaded["minimal"].MaxRetries != -1 {
+		t.Errorf("minimal.MaxRetries = %d, want -1", loaded["minimal"].MaxRetries)
+	}
+	if loaded["minimal"].StopTimeoutSec != 5 {
+		t.Errorf("minimal.StopTimeoutSec = %d, want 5", loaded["minimal"].StopTimeoutSec)
+	}
+	if loaded["explicit"].MaxRetries != 0 {
+		t.Errorf("explicit.MaxRetries = %d, want 0", loaded["explicit"].MaxRetries)
+	}
+	if loaded["explicit"].StopTimeoutSec != 10 {
+		t.Errorf("explicit.StopTimeoutSec = %d, want 10", loaded["explicit"].StopTimeoutSec)
+	}
+}
+
+func TestSaveConfigWritesFieldsInFixedOrder(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+
+	apps := map[string]*App{
+		"app": {
+			Command:           `C:\bin\app.exe`,
+			Enabled:           true,
+			Args:              []string{"--flag"},
+			CWD:               `C:\work`,
+			HideWindow:        true,
+			RestartDelaySec:   3,
+			HealthyTimeoutSec: 60,
+			MaxRetries:        5,
+			StopCommand:       "taskkill",
+			StopArgs:          []string{"/PID", "${PID}"},
+			StopTimeoutSec:    10,
+		},
+	}
+	if err := SaveConfig(configPath, apps); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	b, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	got := string(b)
+
+	// The fields must appear in the order declared by appTOML.
+	wantOrder := []string{
+		"command =",
+		"args =",
+		"cwd =",
+		"enabled =",
+		"hide_window =",
+		"stop_command =",
+		"stop_args =",
+		"stop_timeout_sec =",
+		"restart_delay_sec =",
+		"max_retries =",
+		"healthy_timeout_sec =",
+	}
+	prev := -1
+	for _, key := range wantOrder {
+		idx := strings.Index(got, key)
+		if idx < 0 {
+			t.Fatalf("missing key %q in:\n%s", key, got)
+		}
+		if idx <= prev {
+			t.Fatalf("key %q appears out of order:\n%s", key, got)
+		}
+		prev = idx
+	}
+}
+
+func indexAfter(s, sub string) int {
+	i := strings.Index(s, sub)
+	if i < 0 {
+		return -1
+	}
+	return i + len(sub)
+}
+
+func containsWithin(s, sub string, start, end int) bool {
+	if start < 0 || start >= len(s) || end > len(s) || start >= end {
+		return false
+	}
+	return strings.Contains(s[start:end], sub)
 }
