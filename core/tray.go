@@ -8,7 +8,7 @@ import (
 )
 
 // RunSystray starts the system tray loop and registers callbacks.
-func RunSystray(iconData []byte, autoStart *AutoStartManager, onOpenUI func(), onExit func()) {
+func RunSystray(iconData []byte, autoStart *AutoStartManager, onOpenUI func(), onOpenConfigWith func(), onExit func()) {
 	systray.Run(func() {
 		if len(iconData) > 0 {
 			systray.SetIcon(iconData)
@@ -17,6 +17,7 @@ func RunSystray(iconData []byte, autoStart *AutoStartManager, onOpenUI func(), o
 		systray.SetTooltip("Resurrector Process Monitor")
 
 		mOpen := systray.AddMenuItem("Open Settings", "Open UI")
+		mOpenConfigWith := systray.AddMenuItem("Open config with...", "Choose an app to open config.toml")
 		var mAutoStart *systray.MenuItem
 		if autoStart != nil {
 			mAutoStart = systray.AddMenuItem("Auto-start Resurrector", "Start Resurrector automatically when you sign in to Windows")
@@ -35,6 +36,9 @@ func RunSystray(iconData []byte, autoStart *AutoStartManager, onOpenUI func(), o
 
 		mOpen.Click(func() {
 			onOpenUI()
+		})
+		mOpenConfigWith.Click(func() {
+			onOpenConfigWith()
 		})
 		if mAutoStart != nil {
 			mAutoStart.Click(func() {

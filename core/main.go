@@ -179,6 +179,15 @@ func main() {
 			)
 		}
 	}, func() {
+		if err := openWithDialog(configPath); err != nil {
+			slog.Error("failed to open config with dialog",
+				slog.String("component", "main"),
+				slog.String("path", configPath),
+				slog.Any("error", err),
+			)
+			showErrorDialog("Resurrector - Error", fmt.Sprintf("Failed to open the 'Open with' dialog for config.toml:\n\n%v", err))
+		}
+	}, func() {
 		slog.Info("quit requested, stopping all monitors",
 			slog.String("component", "main"),
 		)
