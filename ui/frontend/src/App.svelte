@@ -568,7 +568,7 @@
           <label class="field-label" for="field-stop-args">
             Stop Args
             <span class="field-hint"
-              >Shell-style argv. <code>{`{pid}`}</code> is replaced with the monitored
+              >Shell-style argv. <code>{"${PID}"}</code> is replaced with the monitored
               PID.</span
             >
           </label>
@@ -577,7 +577,7 @@
             class="field-input field-mono"
             type="text"
             bind:value={editForm.stopArgs}
-            placeholder={"/PID {pid} /T"}
+            placeholder={"/PID ${PID} /T"}
           />
         </div>
 

@@ -27,39 +27,120 @@ type App struct {
 	StopTimeoutSec    int      `toml:"stop_timeout_sec"`
 }
 
-// ValidateAndApplyDefaults enforces mandatory fields and sets default values.
+// ValidateAndApplyDefaults enforces mandatory fields, fills in default values
+// for omitted fields, and validates placeholder syntax and referenced env vars.
+//
+// Command, Args, CWD, StopCommand, and StopArgs are not mutated: the user's
+// original input is preserved so it round-trips through SaveConfig without
+// losing ${NAME} references or being rewritten to absolute paths. Expansion
+// and path resolution happen on demand via the Resolved* helpers.
 func (a *App) ValidateAndApplyDefaults() error {
 	if a.Command == "" {
 		return fmt.Errorf("command is mandatory")
 	}
 
-	resolvedCommand, err := resolveCommandPath(a.Command)
-	if err != nil {
+	if _, err := a.ResolvedCommand(); err != nil {
 		return err
 	}
-	a.Command = resolvedCommand
 
 	if a.Args == nil {
 		a.Args = []string{}
 	}
+	for i, arg := range a.Args {
+		if _, err := ExpandEnv(arg); err != nil {
+			return fmt.Errorf("invalid args[%d]: %w", i, err)
+		}
+	}
+
 	if a.StopArgs == nil {
 		a.StopArgs = []string{}
 	}
-	if a.StopCommand != "" {
-		resolvedStopCommand, err := resolveCommandPath(a.StopCommand)
-		if err != nil {
-			return fmt.Errorf("invalid stop_command: %w", err)
+	for i, arg := range a.StopArgs {
+		if err := ValidateTemplate(arg, true); err != nil {
+			return fmt.Errorf("invalid stop_args[%d]: %w", i, err)
 		}
-		a.StopCommand = resolvedStopCommand
 	}
-	if a.CWD == "" {
-		a.CWD = filepath.Dir(a.Command)
+
+	if a.StopCommand != "" {
+		if _, err := a.ResolvedStopCommand(); err != nil {
+			return err
+		}
 	}
+
+	if a.CWD != "" {
+		if _, err := ExpandEnv(a.CWD); err != nil {
+			return fmt.Errorf("invalid cwd: %w", err)
+		}
+	}
+
 	if a.StopTimeoutSec < 0 {
 		return fmt.Errorf("stop_timeout_sec must be >= 0")
 	}
 	return nil
 }
+
+// ResolvedCommand returns Command with ${NAME} placeholders expanded and the
+// path resolved to an absolute path via the system PATH when necessary.
+func (a *App) ResolvedCommand() (string, error) {
+	expanded, err := ExpandEnv(a.Command)
+	if err != nil {
+		return "", fmt.Errorf("invalid command: %w", err)
+	}
+	resolved, err := resolveCommandPath(expanded)
+	if err != nil {
+		return "", err
+	}
+	return resolved, nil
+}
+
+// ResolvedArgs returns Args with ${NAME} placeholders expanded in each element.
+func (a *App) ResolvedArgs() ([]string, error) {
+	out := make([]string, len(a.Args))
+	for i, arg := range a.Args {
+		expanded, err := ExpandEnv(arg)
+		if err != nil {
+			return nil, fmt.Errorf("invalid args[%d]: %w", i, err)
+		}
+		out[i] = expanded
+	}
+	return out, nil
+}
+
+// ResolvedStopCommand returns StopCommand with ${NAME} placeholders expanded
+// and the path resolved to an absolute path via the system PATH when necessary.
+// Returns "" (no error) when StopCommand is empty.
+func (a *App) ResolvedStopCommand() (string, error) {
+	if a.StopCommand == "" {
+		return "", nil
+	}
+	expanded, err := ExpandEnv(a.StopCommand)
+	if err != nil {
+		return "", fmt.Errorf("invalid stop_command: %w", err)
+	}
+	resolved, err := resolveCommandPath(expanded)
+	if err != nil {
+		return "", fmt.Errorf("invalid stop_command: %w", err)
+	}
+	return resolved, nil
+}
+
+// ResolvedCWD returns CWD with ${NAME} placeholders expanded. If CWD is empty,
+// it defaults to the directory containing the resolved Command.
+func (a *App) ResolvedCWD() (string, error) {
+	if a.CWD != "" {
+		expanded, err := ExpandEnv(a.CWD)
+		if err != nil {
+			return "", fmt.Errorf("invalid cwd: %w", err)
+		}
+		return expanded, nil
+	}
+	resolvedCommand, err := a.ResolvedCommand()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Dir(resolvedCommand), nil
+}
+
 
 // LoadConfig reads the configuration file from the given path and parses it.
 // Returns a map of app name → App config. If the file is invalid TOML,
@@ -117,8 +198,6 @@ func LoadConfig(path string) (map[string]*App, error) {
 // atomic write (temp file -> sync -> close -> rename) to prevent partial writes.
 // The Name field on each App is ignored; the map key is used as the TOML section name.
 func SaveConfig(path string, apps map[string]*App) error {
-	// Build a raw map[string]*App without the Name field to serialize cleanly.
-	// go-toml/v2 respects `toml:"-"` so Name is already excluded.
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".resurrector-config-*.toml")
 	if err != nil {

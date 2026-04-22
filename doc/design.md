@@ -10,13 +10,11 @@ Resurrector treats `config.toml` as a **declarative desired-state specification*
 
 ### Key Principles
 
-1. **Declarative over Imperative**: Users declare *what* should be running, not *how* to transition. The core reconciles the difference automatically.
-2. **Idempotent Reconciliation**: Applying the same config file repeatedly produces the same result. The reconciler compares desired state vs. actual state and only performs necessary actions.
+1. **Declarative over Imperative**: Users declare _what_ should be running, not _how_ to transition. The core reconciles the difference automatically.
+2. **Idempotent Reconciliation**: Applying the same config file repeatedly produces the same result. The reconciler compares desired state vs. actual state and performs only the necessary start/stop/restart actions to converge.
 3. **File-Watch Driven**: The core uses `fsnotify` to detect config file changes in real-time. No restart of the core process is required to pick up configuration changes.
-4. **Graceful Convergence**: When config changes, the core handles additions, removals, and modifications of entries gracefully — starting new processes, stopping removed ones, and restarting modified ones as needed.
-5. **Core is Read-Only After Bootstrap**: After startup initialization, the core process treats `config.toml` as read-only. Its only write is first-run bootstrap when the config file does not yet exist; after that it only reads and reacts. All ongoing config modifications are performed externally — either by the user editing the file directly or by the UI process writing to it.
-6. **Strict Lifecycle Ownership**: Resurrector entirely owns the lifecycle of the monitored processes. It launches them as child processes bound to a **Windows Job Object**. If Resurrector exits, all monitored processes are guaranteed to terminate with it.
-7. **Atomic Config Updates**: Modifications to `config.toml` (especially by the UI) must be performed atomically (e.g., write to a temporary file, then rename/move) to prevent the core from reading partially written files.
+4. **Core is Read-Only After Bootstrap**: After startup initialization, the core process treats `config.toml` as read-only. Its only write is first-run bootstrap when the config file does not yet exist; after that it only reads and reacts. All ongoing config modifications are performed externally — either by the user editing the file directly or by the UI process writing to it.
+5. **Strict Lifecycle Ownership**: Resurrector entirely owns the lifecycle of the monitored processes. It launches them as child processes bound to a **Windows Job Object**. If Resurrector exits, all monitored processes are guaranteed to terminate with it.
 
 ## System Overview
 
@@ -65,7 +63,7 @@ To minimize system resource consumption, Resurrector consists of two independent
 - **Features**: Uses a custom Wails logger. By default logs go to `STDERR`; the core then uses the UI process's `STDIN` as a unidirectional line-based JSON status stream. When `-log-file` is specified, logs are appended to that file instead. The UI **writes directly to `config.toml`** (using atomic writes) when the user makes configuration changes — the core detects these changes via fsnotify and reconciles automatically.
 - **Config Bridge**: Implements a `config_bridge.go` that exposes an `AppConfig` DTO (Data Transfer Object) to the frontend. This DTO handles:
   - Field name mapping (e.g., camelCase for JSON/TypeScript, snake_case for TOML).
-  - Command formatting: Converting `[]string` fields such as `args` and `stop_command` from TOML into single shell-like strings for user-friendly editing, and parsing them back using `util.ParseArgs`.
+  - Command formatting: Converting `[]string` fields such as `args` and `stop_args` from TOML into single shell-like strings for user-friendly editing, and parsing them back using `util.ParseArgs`.
 - **UI Conveniences**: Provides a native file dialog for choosing a command path, supports drag-and-drop registration of executable/script files, and derives accepted file extensions from the current Windows `PATHEXT` environment variable.
 - **Termination**: The process terminates when the window is closed.
 
@@ -80,7 +78,7 @@ This design keeps the core simple (read config, reconcile) and preserves the "co
 
 ## Reconciliation Loop
 
-The core of the system is a **reconciliation loop** driven by file-system events:
+The core of the system is a **reconciliation loop** driven by file-system events. All config changes — whether from the user editing `config.toml` in a text editor or from the UI writing to it via `util.SaveConfig` — follow the same path: an atomic write on disk, an fsnotify event, a re-parse, and a reconcile pass.
 
 ```text
                   ┌──────────────────────┐
@@ -145,12 +143,6 @@ To determine whether an entry's config has been "modified" (requiring restart), 
 - `hide_window` — Requires restart to change window visibility
 - `restart_delay_sec`, `healthy_timeout_sec`, `max_retries`, `stop_command`, `stop_args`, `stop_timeout_sec` — Can be updated in-place (hot-reload) without restarting the monitored process
 
-> [!TIP]
-> **Automated Resolution**: If `command` is just a binary name (e.g., `npm`), it is resolved to an absolute path. If `cwd` is omitted, it defaults to the directory of the `command`. This resolution happens during the config load phase, ensuring the reconciler always works with canonical paths.
->
-> [!NOTE]
-> Fields like `restart_delay_sec`, `healthy_timeout_sec`, `max_retries`, `stop_command`, `stop_args`, and `stop_timeout_sec` are **monitoring parameters**, not process identity fields. Changing them does NOT require stopping and restarting the monitored process. They can be hot-reloaded by updating the in-memory config reference.
-
 ### File Editing & Debouncing
 
 File-system events can fire multiple times for a single save operation (especially on Windows). The reconciler uses a debounce mechanism — after receiving an fsnotify event, it waits a short period (e.g. 500ms) for additional events before triggering reconciliation. This ensures that rapid successive writes (e.g. from a text editor) are coalesced into a single reconciliation pass.
@@ -175,38 +167,6 @@ Startup is intentionally stricter than live reload:
 1. If `config.toml` does not exist, the core creates it with sample content and continues.
 2. If the initial config load fails after that (parse error, validation failure, unreadable file), the core shows a native Windows error dialog and exits.
 3. This prevents the tray from coming up in a partially initialized state with unknown monitoring behavior.
-
-## Data Flow
-
-```text
-                    config.toml (SSoT)
-                    ^              ^
-        (fsnotify)  |              |  (direct write)
-          (read)    |              |
-    +---------------+---+     +----+--------------+
-    |  Core (Reconciler)|     |   UI Process      |
-    +--------+----------+     +-------------------+
-             |          state push (IPC)
-             |---------------------------->
-             |
-             | (Reconcile: Start/Kill/Restart)
-             v
-    +-------------------+
-    | Monitored Process |
-    +-------------------+
-```
-
-### Config Modification Flow
-
-All config changes — whether from the user editing the file in a text editor or through the UI — follow the **same code path**:
-
-1. `config.toml` is modified using an **atomic write** (e.g., `rename(config.toml.tmp, config.toml)`).
-2. The core's `fsnotify` watcher detects the file change.
-3. The core re-reads and parses the config.
-4. The reconciler compares desired state vs. actual state and converges.
-
-> [!NOTE]
-> After initial bootstrap of a missing file, the core process does not write to `config.toml`. The UI process handles config editing by writing to the file directly. This keeps the core's steady-state responsibility clean and simple: **read → reconcile → monitor**.
 
 ## Per-Process Monitor Lifecycle
 
@@ -240,14 +200,7 @@ Each monitored process entry runs through the following state machine:
 
 ## Stop Command and Automatic Stop Detection
 
-### Motivation
-
-Today, Resurrector has a single stop behavior: it forcefully stops the monitored process tree so that desired state converges reliably. This is simple and robust, but some applications could shut down more gracefully if Resurrector first tried an application-appropriate stop request and only called `TerminateProcess` after a timeout.
-
-The previous `stop_mode` idea required the user to classify the target as "GUI" or "console". That classification leaks implementation detail into the config and becomes error-prone for wrappers, launchers, and mixed-behavior applications. A better design is:
-
-- Let the user supply an explicit shutdown command when one is known.
-- Otherwise, let Resurrector choose the best-effort graceful mechanism automatically from observed runtime state.
+To stop a monitored process, Resurrector prefers an application-appropriate shutdown over an immediate `TerminateProcess`: if a `stop_command` is configured it is run first; otherwise Resurrector chooses a graceful mechanism automatically from observed runtime state. In both cases, `TerminateProcess` remains the final fallback after `stop_timeout_sec`.
 
 ### Config Fields
 
@@ -256,14 +209,14 @@ The previous `stop_mode` idea required the user to classify the target as "GUI" 
 command = "myapp.exe"
 enabled = true
 stop_command = "taskkill"
-stop_args = ["/PID", "{pid}", "/T"]
+stop_args = ["/PID", "${PID}", "/T"]
 stop_timeout_sec = 5
 ```
 
 - `stop_command` (String): Optional shutdown executable. Resolved via PATH if not an absolute path.
 - `stop_args` (Array of Strings): Arguments passed to `stop_command`. Not shell-parsed.
 - `stop_timeout_sec` (Integer): How long Resurrector waits for a graceful stop request to succeed before falling back to an explicit `TerminateProcess`. Default: `5`.
-- `{pid}`: Placeholder expanded inside `stop_args` to the monitored root process PID before `stop_command` is executed.
+- `${PID}`: Placeholder expanded inside `stop_args` to the monitored root process PID at stop time. `${NAME}` expands an environment variable (rejected if undefined); `$$` produces a literal `$`. These placeholders are also supported in `command`, `args`, `cwd`, and `stop_command`, except that `${PID}` is only valid in `stop_args`.
 
 ### Semantics
 
@@ -280,7 +233,7 @@ STOP requested
 is stop_command configured?
     |
     +--> yes
-    |      -> expand placeholders (for now: {pid})
+    |      -> expand placeholders (${PID} and env vars)
     |      -> run stop_command
     |      -> wait stop_timeout_sec
     |      -> if exited: success
@@ -297,8 +250,8 @@ is stop_command configured?
 
 ### Design Notes
 
-- `stop_command` should be modeled as `[]string`, not a single string, so config stays unambiguous and Windows quoting rules remain explicit.
-- `stop_command` should be treated as argv, not shell syntax. If the user needs shell features, they should explicitly invoke `cmd.exe` or `powershell.exe`.
+- The shutdown command is split into `stop_command` (executable string) and `stop_args` (argv array), matching the `command` / `args` pair, so config stays unambiguous and Windows quoting rules remain explicit.
+- `stop_command` and `stop_args` are treated as argv, not shell syntax. If the user needs shell features, they should explicitly invoke `cmd.exe` or `powershell.exe`.
 - The success condition of `stop_command` is not its exit code alone; the monitored process must actually exit.
 - Automatic detection should be based on runtime observation rather than PE subsystem metadata alone. In particular, top-level window enumeration is more reliable than trying to classify the original command line statically.
 - `WM_CLOSE` targeting should exclude both the classic `ConsoleWindowClass` and the ConPTY-era `PseudoConsoleWindow` class, so that a console host does not accidentally become the preferred stop target for a console-oriented process.
@@ -334,6 +287,7 @@ Because a Windows process can only be attached to **one** console at a time (the
 │   └── frontend/           # Svelte application (UI screens)
 ├── util/                   # Common utilities
 │   ├── config.go           # TOML parsing, Atomic writes, Shell-like arg parsing
+│   ├── expand.go           # ${NAME} / ${PID} / $$ placeholder expansion
 │   ├── flag.go             # Shared CLI flag parsing and config-path normalization
 │   └── logger.go           # Shared slog setup (output destination and format)
 ├── doc/                    # Design docs and rationales

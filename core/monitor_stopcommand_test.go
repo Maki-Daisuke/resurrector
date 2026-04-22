@@ -17,7 +17,7 @@ func TestHasIdentityChangedIgnoresStopSettings(t *testing.T) {
 	}
 	desired := current
 	desired.StopCommand = `C:\Windows\System32\taskkill.exe`
-	desired.StopArgs = []string{"/PID", "{pid}"}
+	desired.StopArgs = []string{"/PID", "${PID}"}
 	desired.StopTimeoutSec = 10
 
 	if hasIdentityChanged(current, desired) {
@@ -40,7 +40,7 @@ func TestHasMonitoringParamsChangedIncludesStopSettings(t *testing.T) {
 
 	desired = current
 	desired.StopCommand = "taskkill"
-	desired.StopArgs = []string{"/PID", "{pid}"}
+	desired.StopArgs = []string{"/PID", "${PID}"}
 
 	if !hasMonitoringParamsChanged(current, desired) {
 		t.Fatalf("expected stop_command change to hot-reload")
@@ -60,7 +60,10 @@ func TestProcessCreationFlagsIncludeProcessGroup(t *testing.T) {
 func TestExpandStopArgsExpandsPID(t *testing.T) {
 	t.Parallel()
 
-	got := expandStopArgs([]string{"/PID", "{pid}", "/FI", "pid eq {pid}"}, 4242)
+	got, err := expandStopArgs([]string{"/PID", "${PID}", "/FI", "pid eq ${PID}"}, 4242)
+	if err != nil {
+		t.Fatalf("expandStopArgs returned error: %v", err)
+	}
 	want := []string{"/PID", "4242", "/FI", "pid eq 4242"}
 
 	if !stringSlicesEqual(got, want) {

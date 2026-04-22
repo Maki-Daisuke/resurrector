@@ -59,7 +59,7 @@ command = "node.exe"
 args = ["server.js", "--port", "8080"]
 
 stop_command = "taskkill"
-stop_args = ["/PID", "{pid}", "/T"]
+stop_args = ["/PID", "${PID}", "/T"]
 ```
 
 An obvious alternative would be to pack everything into a single string — `command = "node.exe server.js --port 8080"` — the way `systemd`'s `ExecStart=` or a shell prompt does. Resurrector deliberately does not do this, for one overriding reason: **a single-string form invites users to believe they can write shell syntax in it.**
@@ -110,6 +110,32 @@ Here, the user is clearly invoking a specific shell and handing it a command lin
 This design also matches the convention used by most modern process-management tools — Docker (`ENTRYPOINT` / `CMD`), Kubernetes (`command` / `args`), VS Code `tasks.json` (`command` / `args`), and PM2 (`script` / `args`) all separate the executable from its arguments, for essentially the same reason. Tools that fold everything into a single string (`systemd`, `supervisord`) do so for historical continuity with shell-script-based init systems, and they pay for it with a custom parser whose quoting and escaping rules are a frequent source of bugs.
 
 Resurrector chooses the argv-separated style because it is **safer, more explicit, and free of shell illusions** — and it applies the same rule to both `command` and `stop_command` so the config schema stays consistent.
+
+## Why Placeholders Use `${NAME}` and `$$`
+
+Once the argv-separated design is in place, argv elements are still plain strings, and there are two things users legitimately want to inject into them that Resurrector has to produce itself:
+
+- **Environment values** — paths like `${USERPROFILE}\bin\myapp.exe` or `${APPDATA}\myapp\config.json` that differ per user or per machine, so that the same `config.toml` can be reused across environments.
+- **The monitored PID** — required in `stop_args` for commands like `taskkill /PID ... /T` because the PID is not known until the process has actually been launched.
+
+### Why `${NAME}`, Not `%NAME%` or `$NAME`
+
+For environment variables, there are three candidate syntaxes on Windows:
+
+- **`%NAME%`** is the native `cmd.exe` form. It is familiar to long-time Windows users, but it collides with nothing else and is also a strong signal that "this is a cmd.exe thing." Using it in Resurrector would imply cmd-style semantics (e.g. delayed expansion, `%%` escaping) that Resurrector does not implement.
+- **`$NAME`** (no braces) is the traditional POSIX shell form. It has well-known parsing ambiguities — `$PATHfoo` vs. `${PATH}foo` — and would force users to remember where a name ends.
+- **`${NAME}`** is unambiguous, widely recognized across modern tools (Make, Docker Compose, GitHub Actions, `os.Expand` in Go, most shells), and visually distinct from surrounding text. It does not imply any particular shell's semantics.
+
+Resurrector uses `${NAME}` for exactly the unambiguity reason: the boundaries of the name are explicit, and the syntax reads as "template variable" rather than "cmd-style variable" or "shell-style variable."
+
+### Why `$$` Is the Escape
+
+With `${...}` as the placeholder syntax, the user still needs a way to write a literal `$`. Resurrector uses `$$` → `$`, matching the convention established by Make, Docker Compose, and most template engines. This gives the syntax two properties that matter in practice:
+
+- **Any template is writable.** A literal `${PID}` can be produced by writing `$${PID}` (the `$$` escapes to `$`, and the following `{PID}` is plain text because it has no leading `$`). This avoids a corner case where some desired output would be inexpressible.
+- **A stray `$` is a syntax error, not a silent surprise.** A lone `$` that is not followed by `$` or `{` is rejected at config load time (for non-`stop_args` fields) or at stop time (for `stop_args`). This catches typos like `$PATH` — a common POSIX-style mistake — instead of silently passing them through.
+
+Expansion is deliberately **single-pass**: the replacement produced by one lookup is not re-scanned for further placeholders. This keeps the semantics simple and predictable (a value from `${FOO}` is always treated literally, even if it happens to contain `${PID}` or `$$`), and it avoids introducing a second template layer that users would have to reason about.
 
 ## Why We Do Not Inspect Exit Codes
 

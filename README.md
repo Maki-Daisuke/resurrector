@@ -59,8 +59,28 @@ enabled = false
 - `max_retries` (Integer): Retry count limit for a crashing app. `0` means no retry; negative values mean infinite retry. (Default: `-1` / Infinite retry)
 - `healthy_timeout_sec` (Integer): If the process runs for at least this many seconds before exiting, the restart counter is reset to 0. `0` disables that reset (the counter increments on every exit). (Default: `0`)
 - `stop_command` (String): Optional shutdown executable. If a relative path or just a command name (e.g., `taskkill`) is provided, Resurrector will attempt to resolve the absolute path using the system PATH. (Default: `""`)
-- `stop_args` (Array of Strings): List of arguments passed to `stop_command`. Not shell-parsed. If shell features are needed, explicitly invoke a shell such as `cmd.exe` or `powershell.exe` as the `stop_command`. The `{pid}` placeholder in each argument is replaced with the monitored root process PID before execution. (Default: `[]`)
+- `stop_args` (Array of Strings): List of arguments passed to `stop_command`. Not shell-parsed. If shell features are needed, explicitly invoke a shell such as `cmd.exe` or `powershell.exe` as the `stop_command`. See [Placeholders and Environment Variables](#placeholders-and-environment-variables) below for how `${PID}` and `${NAME}` expand inside each argument. (Default: `[]`)
 - `stop_timeout_sec` (Integer): How long Resurrector waits for graceful shutdown attempts before falling back to `TerminateProcess`. (Default: `5`)
+
+### Placeholders and Environment Variables
+
+The `command`, `args`, `cwd`, `stop_command`, and `stop_args` fields all support placeholder expansion:
+
+- `${NAME}` — Replaced with the value of the environment variable `NAME`. It is an error if `NAME` is not defined.
+- `${PID}` — Replaced with the monitored process PID. **Only valid inside `stop_args`**; any other field containing `${PID}` is rejected as an invalid config.
+- `$$` — Produces a literal `$` character. Use this if you need a `$` that is not part of a placeholder.
+
+Example:
+
+```toml
+["My App"]
+command = "${USERPROFILE}\\bin\\myapp.exe"
+args = ["--config", "${APPDATA}\\myapp\\config.json"]
+stop_command = "taskkill"
+stop_args = ["/PID", "${PID}", "/T"]
+```
+
+Expansion is single-pass (expanded values are not re-scanned for placeholders), so the content of environment variables is always treated literally.
 
 ### Stop Behavior
 
@@ -71,7 +91,7 @@ If `stop_command` is specified, Resurrector runs it first and waits up to `stop_
 command = "myapp.exe"
 enabled = true
 stop_command = "taskkill"
-stop_args = ["/PID", "{pid}", "/T"]
+stop_args = ["/PID", "${PID}", "/T"]
 stop_timeout_sec = 5
 ```
 

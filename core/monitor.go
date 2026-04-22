@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os/exec"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -352,9 +351,20 @@ func startProcessWithJobObject(cfg util.App) (pid int, processHandle windows.Han
 		return 0, 0, 0, fmt.Errorf("SetInformationJobObject: %w", err)
 	}
 
-	// Build command line
-	args := []string{cfg.Command}
-	args = append(args, cfg.Args...)
+	// Resolve placeholders at launch time; the struct keeps the user's
+	// original (unexpanded) input for round-tripping through SaveConfig.
+	resolvedCommand, err := cfg.ResolvedCommand()
+	if err != nil {
+		windows.CloseHandle(jobHandle)
+		return 0, 0, 0, fmt.Errorf("resolve command: %w", err)
+	}
+	resolvedArgs, err := cfg.ResolvedArgs()
+	if err != nil {
+		windows.CloseHandle(jobHandle)
+		return 0, 0, 0, fmt.Errorf("resolve args: %w", err)
+	}
+	args := []string{resolvedCommand}
+	args = append(args, resolvedArgs...)
 
 	var escapedArgs []string
 	for _, arg := range args {
@@ -367,9 +377,14 @@ func startProcessWithJobObject(cfg util.App) (pid int, processHandle windows.Han
 		return 0, 0, 0, fmt.Errorf("UTF16PtrFromString(cmdline): %w", err)
 	}
 
+	resolvedCWD, err := cfg.ResolvedCWD()
+	if err != nil {
+		windows.CloseHandle(jobHandle)
+		return 0, 0, 0, fmt.Errorf("resolve cwd: %w", err)
+	}
 	var dirPtr *uint16
-	if cfg.CWD != "" {
-		dirPtr, err = windows.UTF16PtrFromString(cfg.CWD)
+	if resolvedCWD != "" {
+		dirPtr, err = windows.UTF16PtrFromString(resolvedCWD)
 		if err != nil {
 			windows.CloseHandle(jobHandle)
 			return 0, 0, 0, fmt.Errorf("UTF16PtrFromString(cwd): %w", err)
@@ -495,11 +510,22 @@ func launchStopCommand(cfg util.App, pid int) error {
 	if cfg.StopCommand == "" {
 		return nil
 	}
-	args := expandStopArgs(cfg.StopArgs, pid)
+	resolvedStopCommand, err := cfg.ResolvedStopCommand()
+	if err != nil {
+		return fmt.Errorf("resolve stop_command: %w", err)
+	}
+	args, err := expandStopArgs(cfg.StopArgs, pid)
+	if err != nil {
+		return fmt.Errorf("expand stop_args: %w", err)
+	}
 
-	cmd := exec.Command(cfg.StopCommand, args...)
-	if cfg.CWD != "" {
-		cmd.Dir = cfg.CWD
+	cmd := exec.Command(resolvedStopCommand, args...)
+	resolvedCWD, err := cfg.ResolvedCWD()
+	if err != nil {
+		return fmt.Errorf("resolve cwd: %w", err)
+	}
+	if resolvedCWD != "" {
+		cmd.Dir = resolvedCWD
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 
@@ -514,17 +540,20 @@ func launchStopCommand(cfg util.App, pid int) error {
 	return nil
 }
 
-func expandStopArgs(stopArgs []string, pid int) []string {
+func expandStopArgs(stopArgs []string, pid int) ([]string, error) {
 	if len(stopArgs) == 0 {
-		return nil
+		return nil, nil
 	}
 
-	pidText := strconv.Itoa(pid)
 	expanded := make([]string, len(stopArgs))
 	for i, arg := range stopArgs {
-		expanded[i] = strings.ReplaceAll(arg, "{pid}", pidText)
+		v, err := util.ExpandEnvWithPID(arg, pid)
+		if err != nil {
+			return nil, fmt.Errorf("stop_args[%d]: %w", i, err)
+		}
+		expanded[i] = v
 	}
-	return expanded
+	return expanded, nil
 }
 
 func stopAutomatically(cfg util.App, pid int, processHandle windows.Handle, timeout time.Duration) error {
