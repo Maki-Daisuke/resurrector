@@ -50,6 +50,67 @@ At the same time, TOML provides the expressiveness that plain INI lacks. Resurre
 
 Just as importantly, TOML avoids the ambiguity that comes with looser configuration formats. Resurrector treats `config.toml` as a declarative source of truth, so the format should be easy for humans to read while remaining straightforward for Go code to parse into a strictly typed schema. In that sense, TOML was chosen as a practical successor to the traditional Windows INI style: familiar in shape, but with enough structure and clarity for a modern config file.
 
+## Why `command` and `stop_command` Are Split Into an Executable and an Args Array
+
+Both the main launch command and the optional shutdown command in `config.toml` are expressed as a **single executable string plus an array of arguments**:
+
+```toml
+command = "node.exe"
+args = ["server.js", "--port", "8080"]
+
+stop_command = "taskkill"
+stop_args = ["/PID", "{pid}", "/T"]
+```
+
+An obvious alternative would be to pack everything into a single string — `command = "node.exe server.js --port 8080"` — the way `systemd`'s `ExecStart=` or a shell prompt does. Resurrector deliberately does not do this, for one overriding reason: **a single-string form invites users to believe they can write shell syntax in it.**
+
+### Shell Syntax Does Not Work Here
+
+Resurrector does not hand the command line to a shell at all. It constructs the process directly from an executable and an argv, without any intermediate shell interpretation. That means things like the following **will not do what the user expects**:
+
+- `myapp.exe > output.log` — the `>` is passed as a literal argument to `myapp.exe`, not interpreted as a redirection. No file is opened, nothing is redirected.
+- `myapp.exe | tee log.txt` — the `|` is a literal argument. There is no pipe.
+- `myapp.exe && cleanup.exe` — `&&` is a literal argument. The second command is never run.
+- `myapp.exe "$USER"` — environment variable expansion does not happen. The literal string `$USER` is passed through.
+
+These characters are shell features, not process-creation features. If the config format accepted a single string, users would reasonably assume that shell features work there (because they work in every shell prompt, `.bat` file, and `ExecStart=` line they have seen). The result would be silent misconfiguration: the process starts, but not in the way the user intended.
+
+### Why Not Just Pick a Shell and Interpret the String?
+
+One way to make a single-string form "work" would be for Resurrector to pass the command to a shell internally. But on Windows, **there is no single obvious choice of shell**, and every option has significant drawbacks:
+
+- **`cmd.exe`** is the traditional Windows shell. It supports `>`, `|`, `&&`, `%VAR%`, but its quoting and escaping rules are famously idiosyncratic, and it cannot express many things that modern users expect.
+- **PowerShell** is the modern Windows shell. It supports `>`, `|`, `$env:VAR`, but its syntax is fundamentally different from `cmd.exe` — it has its own quoting rules, its own redirection semantics (e.g. `2>&1` works differently), and its own built-in aliases that do not exist in `cmd.exe`.
+- **Bash / sh** may or may not be present, depending on whether Git for Windows, WSL, or MSYS2 is installed.
+
+If Resurrector silently chose one of these, users writing commands for another shell would be surprised. A string like `myapp.exe 2>&1 | Tee-Object log.txt` is valid PowerShell but nonsense to `cmd.exe`; `myapp.exe && echo done` works in both `cmd.exe` and `bash` but with subtly different semantics around exit codes. There is no correct default.
+
+The cleanest way to avoid this entire class of ambiguity is to **not interpret the command as shell syntax at all**. Resurrector sidesteps the question of "which shell?" by declaring, at the config level, that the command is not shell input. That removes an entire dimension of complexity — no shell selection, no quoting rules to document, no cross-shell portability concerns.
+
+### Why an Array Avoids the Illusion
+
+By requiring the arguments to be written as an explicit array, the config format makes it visually obvious that each element is a **separate argv entry**, not a shell command line. There is no place to put a redirection — `>` in an array element is just a string. The format itself tells the user, "this is argv, not shell input."
+
+If the user genuinely needs shell features (pipes, redirection, conditional execution, variable expansion), the escape hatch is explicit and unambiguous — and, crucially, the user chooses which shell to invoke:
+
+```toml
+# Use cmd.exe explicitly
+command = "cmd.exe"
+args = ["/c", "myapp.exe > output.log"]
+
+# Or PowerShell explicitly
+command = "powershell.exe"
+args = ["-Command", "myapp.exe 2>&1 | Tee-Object log.txt"]
+```
+
+Here, the user is clearly invoking a specific shell and handing it a command line to interpret. There is no ambiguity about who is parsing what, or which dialect applies.
+
+### Consistency With the Rest of the Ecosystem
+
+This design also matches the convention used by most modern process-management tools — Docker (`ENTRYPOINT` / `CMD`), Kubernetes (`command` / `args`), VS Code `tasks.json` (`command` / `args`), and PM2 (`script` / `args`) all separate the executable from its arguments, for essentially the same reason. Tools that fold everything into a single string (`systemd`, `supervisord`) do so for historical continuity with shell-script-based init systems, and they pay for it with a custom parser whose quoting and escaping rules are a frequent source of bugs.
+
+Resurrector chooses the argv-separated style because it is **safer, more explicit, and free of shell illusions** — and it applies the same rule to both `command` and `stop_command` so the config schema stays consistent.
+
 ## Why We Do Not Inspect Exit Codes
 
 ### The Premise: Monitored Apps Are "Always-On"
