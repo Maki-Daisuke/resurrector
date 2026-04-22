@@ -30,8 +30,11 @@ enabled = true
 	}
 
 	app := apps["app"]
-	if len(app.StopCommand) != 0 {
-		t.Fatalf("StopCommand = %#v, want empty slice", app.StopCommand)
+	if app.StopCommand != "" {
+		t.Fatalf("StopCommand = %q, want empty string", app.StopCommand)
+	}
+	if len(app.StopArgs) != 0 {
+		t.Fatalf("StopArgs = %#v, want empty slice", app.StopArgs)
 	}
 	if app.StopTimeoutSec != 5 {
 		t.Fatalf("StopTimeoutSec = %d, want 5", app.StopTimeoutSec)
@@ -67,14 +70,15 @@ func TestValidateAndApplyDefaultsResolvesStopCommand(t *testing.T) {
 
 	app := &App{
 		Command:        exe,
-		StopCommand:    []string{"stop.cmd", "/PID", "{pid}"},
+		StopCommand:    "stop.cmd",
+		StopArgs:       []string{"/PID", "{pid}"},
 		StopTimeoutSec: 5,
 	}
 
 	if err := app.ValidateAndApplyDefaults(); err != nil {
 		t.Fatalf("ValidateAndApplyDefaults returned error: %v", err)
 	}
-	if app.StopCommand[0] != stopExe {
-		t.Fatalf("StopCommand[0] = %q, want %q", app.StopCommand[0], stopExe)
+	if app.StopCommand != stopExe {
+		t.Fatalf("StopCommand = %q, want %q", app.StopCommand, stopExe)
 	}
 }

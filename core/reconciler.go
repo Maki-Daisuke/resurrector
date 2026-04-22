@@ -241,7 +241,8 @@ func hasMonitoringParamsChanged(current, desired util.App) bool {
 		current.HealthyTimeoutSec != desired.HealthyTimeoutSec ||
 		current.MaxRetries != desired.MaxRetries ||
 		current.StopTimeoutSec != desired.StopTimeoutSec ||
-		!stringSlicesEqual(current.StopCommand, desired.StopCommand)
+		current.StopCommand != desired.StopCommand ||
+		!stringSlicesEqual(current.StopArgs, desired.StopArgs)
 }
 
 func stringSlicesEqual(left, right []string) bool {

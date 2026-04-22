@@ -146,7 +146,8 @@ func (m *Monitor) UpdateMonitoringParams(cfg util.App) {
 	m.config.RestartDelaySec = cfg.RestartDelaySec
 	m.config.HealthyTimeoutSec = cfg.HealthyTimeoutSec
 	m.config.MaxRetries = cfg.MaxRetries
-	m.config.StopCommand = append([]string{}, cfg.StopCommand...)
+	m.config.StopCommand = cfg.StopCommand
+	m.config.StopArgs = append([]string{}, cfg.StopArgs...)
 	m.config.StopTimeoutSec = cfg.StopTimeoutSec
 }
 
@@ -472,7 +473,7 @@ func waitForProcessOrStop(processHandle windows.Handle, stopChan <-chan struct{}
 
 func stopProcess(cfg util.App, pid int, processHandle windows.Handle) error {
 	timeout := time.Duration(cfg.StopTimeoutSec) * time.Second
-	if len(cfg.StopCommand) > 0 {
+	if cfg.StopCommand != "" {
 		return stopWithCommand(cfg, pid, processHandle, timeout)
 	}
 	return stopAutomatically(cfg, pid, processHandle, timeout)
@@ -491,12 +492,12 @@ func stopWithCommand(cfg util.App, pid int, processHandle windows.Handle, timeou
 }
 
 func launchStopCommand(cfg util.App, pid int) error {
-	argv := expandStopCommand(cfg.StopCommand, pid)
-	if len(argv) == 0 {
+	if cfg.StopCommand == "" {
 		return nil
 	}
+	args := expandStopArgs(cfg.StopArgs, pid)
 
-	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd := exec.Command(cfg.StopCommand, args...)
 	if cfg.CWD != "" {
 		cmd.Dir = cfg.CWD
 	}
@@ -513,14 +514,14 @@ func launchStopCommand(cfg util.App, pid int) error {
 	return nil
 }
 
-func expandStopCommand(stopCommand []string, pid int) []string {
-	if len(stopCommand) == 0 {
+func expandStopArgs(stopArgs []string, pid int) []string {
+	if len(stopArgs) == 0 {
 		return nil
 	}
 
 	pidText := strconv.Itoa(pid)
-	expanded := make([]string, len(stopCommand))
-	for i, arg := range stopCommand {
+	expanded := make([]string, len(stopArgs))
+	for i, arg := range stopArgs {
 		expanded[i] = strings.ReplaceAll(arg, "{pid}", pidText)
 	}
 	return expanded

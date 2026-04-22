@@ -140,6 +140,7 @@
   let confirmDelete = false;
   let isSaving = false;
   let isPickingCommand = false;
+  let isPickingStopCommand = false;
   let errorMessage = "";
   let isCreateMode = false;
 
@@ -159,6 +160,7 @@
       command: "",
       args: "",
       stopCommand: "",
+      stopArgs: "",
       cwd: "",
       restartDelaySec: 0,
       healthyTimeoutSec: 0,
@@ -280,6 +282,21 @@
       errorMessage = `Command selection failed: ${e}`;
     } finally {
       isPickingCommand = false;
+    }
+  }
+
+  async function handleBrowseStopCommand() {
+    errorMessage = "";
+    isPickingStopCommand = true;
+    try {
+      const selected = await selectCommandPath(editForm.stopCommand || "");
+      if (selected && selected.trim()) {
+        editForm = { ...editForm, stopCommand: selected.trim() };
+      }
+    } catch (e: any) {
+      errorMessage = `Stop command selection failed: ${e}`;
+    } finally {
+      isPickingStopCommand = false;
     }
   }
 
@@ -524,16 +541,43 @@
           <label class="field-label" for="field-stop-command">
             Stop Command
             <span class="field-hint"
-              >Optional shell-style argv. Leave empty for automatic stop
-              detection. <code>{`{pid}`}</code> is replaced with the monitored PID.</span
+              >Optional executable. Leave empty for automatic stop detection.</span
+            >
+          </label>
+          <div class="input-with-button">
+            <input
+              id="field-stop-command"
+              class="field-input field-mono"
+              type="text"
+              bind:value={editForm.stopCommand}
+              placeholder="taskkill"
+            />
+            <button
+              type="button"
+              class="btn btn-ghost btn-compact"
+              on:click={handleBrowseStopCommand}
+              disabled={isSaving || isPickingStopCommand}
+            >
+              {isPickingStopCommand ? "Opening..." : "Browse..."}
+            </button>
+          </div>
+        </div>
+
+        <!-- Stop Args -->
+        <div class="field field-full">
+          <label class="field-label" for="field-stop-args">
+            Stop Args
+            <span class="field-hint"
+              >Shell-style argv. <code>{`{pid}`}</code> is replaced with the monitored
+              PID.</span
             >
           </label>
           <input
-            id="field-stop-command"
+            id="field-stop-args"
             class="field-input field-mono"
             type="text"
-            bind:value={editForm.stopCommand}
-            placeholder={"taskkill /PID {pid} /T"}
+            bind:value={editForm.stopArgs}
+            placeholder={"/PID {pid} /T"}
           />
         </div>
 

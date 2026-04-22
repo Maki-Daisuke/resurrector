@@ -15,6 +15,7 @@ type AppConfig struct {
 	Command           string `json:"command"`
 	Args              string `json:"args"` // Shell-formatted, e.g. `/c "hello world" --debug`
 	StopCommand       string `json:"stopCommand"`
+	StopArgs          string `json:"stopArgs"` // Shell-formatted
 	CWD               string `json:"cwd"`
 	RestartDelaySec   int    `json:"restartDelaySec"`
 	HealthyTimeoutSec int    `json:"healthyTimeoutSec"`
@@ -41,7 +42,8 @@ func (a *App) GetFullConfig() (map[string]AppConfig, error) {
 			Enabled:           app.Enabled,
 			Command:           app.Command,
 			Args:              util.FormatArgs(app.Args),
-			StopCommand:       util.FormatArgs(app.StopCommand),
+			StopCommand:       app.StopCommand,
+			StopArgs:          util.FormatArgs(app.StopArgs),
 			CWD:               app.CWD,
 			RestartDelaySec:   app.RestartDelaySec,
 			HealthyTimeoutSec: app.HealthyTimeoutSec,
@@ -65,9 +67,9 @@ func (a *App) UpdateAppConfig(oldName string, cfg AppConfig) error {
 	if err != nil {
 		return fmt.Errorf("parsing args: %w", err)
 	}
-	parsedStopCommand, err := util.ParseArgs(cfg.StopCommand)
+	parsedStopArgs, err := util.ParseArgs(cfg.StopArgs)
 	if err != nil {
-		return fmt.Errorf("parsing stop command: %w", err)
+		return fmt.Errorf("parsing stop args: %w", err)
 	}
 
 	// Load the current config to preserve all other entries.
@@ -86,7 +88,8 @@ func (a *App) UpdateAppConfig(oldName string, cfg AppConfig) error {
 		Enabled:           cfg.Enabled,
 		Command:           cfg.Command,
 		Args:              parsedArgs,
-		StopCommand:       parsedStopCommand,
+		StopCommand:       cfg.StopCommand,
+		StopArgs:          parsedStopArgs,
 		CWD:               cfg.CWD,
 		RestartDelaySec:   cfg.RestartDelaySec,
 		HealthyTimeoutSec: cfg.HealthyTimeoutSec,

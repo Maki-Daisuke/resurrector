@@ -143,13 +143,13 @@ To determine whether an entry's config has been "modified" (requiring restart), 
 
 - `command`, `args`, `cwd` — The process identity
 - `hide_window` — Requires restart to change window visibility
-- `restart_delay_sec`, `healthy_timeout_sec`, `max_retries`, `stop_command`, `stop_timeout_sec` — Can be updated in-place (hot-reload) without restarting the monitored process
+- `restart_delay_sec`, `healthy_timeout_sec`, `max_retries`, `stop_command`, `stop_args`, `stop_timeout_sec` — Can be updated in-place (hot-reload) without restarting the monitored process
 
 > [!TIP]
 > **Automated Resolution**: If `command` is just a binary name (e.g., `npm`), it is resolved to an absolute path. If `cwd` is omitted, it defaults to the directory of the `command`. This resolution happens during the config load phase, ensuring the reconciler always works with canonical paths.
 >
 > [!NOTE]
-> Fields like `restart_delay_sec`, `healthy_timeout_sec`, `max_retries`, `stop_command`, and `stop_timeout_sec` are **monitoring parameters**, not process identity fields. Changing them does NOT require stopping and restarting the monitored process. They can be hot-reloaded by updating the in-memory config reference.
+> Fields like `restart_delay_sec`, `healthy_timeout_sec`, `max_retries`, `stop_command`, `stop_args`, and `stop_timeout_sec` are **monitoring parameters**, not process identity fields. Changing them does NOT require stopping and restarting the monitored process. They can be hot-reloaded by updating the in-memory config reference.
 
 ### File Editing & Debouncing
 
@@ -255,13 +255,15 @@ The previous `stop_mode` idea required the user to classify the target as "GUI" 
 ["My App"]
 command = "myapp.exe"
 enabled = true
-stop_command = ["taskkill", "/PID", "{pid}", "/T"]
+stop_command = "taskkill"
+stop_args = ["/PID", "{pid}", "/T"]
 stop_timeout_sec = 5
 ```
 
-- `stop_command` (Array of Strings): Optional shutdown command expressed as an argv-style array. The first element is the executable and the remaining elements are arguments. The value is not shell-parsed.
+- `stop_command` (String): Optional shutdown executable. Resolved via PATH if not an absolute path.
+- `stop_args` (Array of Strings): Arguments passed to `stop_command`. Not shell-parsed.
 - `stop_timeout_sec` (Integer): How long Resurrector waits for a graceful stop request to succeed before falling back to an explicit `TerminateProcess`. Default: `5`.
-- `{pid}`: Placeholder expanded to the monitored root process PID before `stop_command` is executed.
+- `{pid}`: Placeholder expanded inside `stop_args` to the monitored root process PID before `stop_command` is executed.
 
 ### Semantics
 

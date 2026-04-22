@@ -6,6 +6,7 @@ export namespace main {
 	    command: string;
 	    args: string;
 	    stopCommand: string;
+	    stopArgs: string;
 	    cwd: string;
 	    restartDelaySec: number;
 	    healthyTimeoutSec: number;
@@ -24,6 +25,7 @@ export namespace main {
 	        this.command = source["command"];
 	        this.args = source["args"];
 	        this.stopCommand = source["stopCommand"];
+	        this.stopArgs = source["stopArgs"];
 	        this.cwd = source["cwd"];
 	        this.restartDelaySec = source["restartDelaySec"];
 	        this.healthyTimeoutSec = source["healthyTimeoutSec"];

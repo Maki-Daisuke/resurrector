@@ -16,7 +16,8 @@ func TestHasIdentityChangedIgnoresStopSettings(t *testing.T) {
 		CWD:     `C:\Windows\System32`,
 	}
 	desired := current
-	desired.StopCommand = []string{`C:\Windows\System32\taskkill.exe`, "/PID", "{pid}"}
+	desired.StopCommand = `C:\Windows\System32\taskkill.exe`
+	desired.StopArgs = []string{"/PID", "{pid}"}
 	desired.StopTimeoutSec = 10
 
 	if hasIdentityChanged(current, desired) {
@@ -38,7 +39,8 @@ func TestHasMonitoringParamsChangedIncludesStopSettings(t *testing.T) {
 	}
 
 	desired = current
-	desired.StopCommand = []string{"taskkill", "/PID", "{pid}"}
+	desired.StopCommand = "taskkill"
+	desired.StopArgs = []string{"/PID", "{pid}"}
 
 	if !hasMonitoringParamsChanged(current, desired) {
 		t.Fatalf("expected stop_command change to hot-reload")
@@ -55,14 +57,14 @@ func TestProcessCreationFlagsIncludeProcessGroup(t *testing.T) {
 	}
 }
 
-func TestExpandStopCommandExpandsPID(t *testing.T) {
+func TestExpandStopArgsExpandsPID(t *testing.T) {
 	t.Parallel()
 
-	got := expandStopCommand([]string{"taskkill", "/PID", "{pid}", "/FI", "pid eq {pid}"}, 4242)
-	want := []string{"taskkill", "/PID", "4242", "/FI", "pid eq 4242"}
+	got := expandStopArgs([]string{"/PID", "{pid}", "/FI", "pid eq {pid}"}, 4242)
+	want := []string{"/PID", "4242", "/FI", "pid eq 4242"}
 
 	if !stringSlicesEqual(got, want) {
-		t.Fatalf("expandStopCommand() = %#v, want %#v", got, want)
+		t.Fatalf("expandStopArgs() = %#v, want %#v", got, want)
 	}
 }
 

@@ -17,7 +17,8 @@ type App struct {
 	Enabled           bool     `toml:"enabled"`
 	Command           string   `toml:"command"`
 	Args              []string `toml:"args"`
-	StopCommand       []string `toml:"stop_command"`
+	StopCommand       string   `toml:"stop_command"`
+	StopArgs          []string `toml:"stop_args"`
 	CWD               string   `toml:"cwd"`
 	RestartDelaySec   int      `toml:"restart_delay_sec"`
 	HealthyTimeoutSec int      `toml:"healthy_timeout_sec"`
@@ -41,15 +42,15 @@ func (a *App) ValidateAndApplyDefaults() error {
 	if a.Args == nil {
 		a.Args = []string{}
 	}
-	if a.StopCommand == nil {
-		a.StopCommand = []string{}
+	if a.StopArgs == nil {
+		a.StopArgs = []string{}
 	}
-	if len(a.StopCommand) > 0 {
-		resolvedStopCommand, err := resolveCommandPath(a.StopCommand[0])
+	if a.StopCommand != "" {
+		resolvedStopCommand, err := resolveCommandPath(a.StopCommand)
 		if err != nil {
 			return fmt.Errorf("invalid stop_command: %w", err)
 		}
-		a.StopCommand[0] = resolvedStopCommand
+		a.StopCommand = resolvedStopCommand
 	}
 	if a.CWD == "" {
 		a.CWD = filepath.Dir(a.Command)
