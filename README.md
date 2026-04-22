@@ -34,7 +34,6 @@ Applications to be monitored are managed via a `config.toml` file. By default, t
 command = 'C:\Program Files\PowerToys\modules\Awake\PowerToys.Awake.exe'
 args = ["--use-pt-config"]
 cwd = 'C:\Program Files\PowerToys\modules\Awake'
-enabled = true
 hide_window = true
 restart_delay_sec = 3
 max_retries = 5
@@ -53,7 +52,7 @@ enabled = false
 - `command` (String): The full path to the command or executable. **(Mandatory)**. If a relative path or just a command name (e.g., `npm`) is provided, Resurrector will attempt to resolve the absolute path using the system PATH.
 - `args` (Array of Strings): List of arguments to pass to the command. (Default: `[]`)
 - `cwd` (String): The working directory (current directory) for running the command. (Default: The directory where the resolved `command` is located)
-- `enabled` (Boolean): If `true`, starts monitoring on startup or UI request. If omitted, it defaults to `false`.
+- `enabled` (Boolean): If `true`, starts monitoring on startup or UI request. (Default: `true`)
 - `hide_window` (Boolean): If `true`, launches the process in the background (hidden window). (Default: `false`)
 - `restart_delay_sec` (Integer): The wait time (seconds) before attempting a restart after detecting a process termination. (Default: `0`)
 - `max_retries` (Integer): Retry count limit for a crashing app. `0` means no retry; negative values mean infinite retry. (Default: `-1` / Infinite retry)
@@ -89,7 +88,6 @@ If `stop_command` is specified, Resurrector runs it first and waits up to `stop_
 ```toml
 ["My App"]
 command = "myapp.exe"
-enabled = true
 stop_command = "taskkill"
 stop_args = ["/PID", "${PID}", "/T"]
 stop_timeout_sec = 5

@@ -31,6 +31,9 @@ enabled = true
 	}
 
 	app := apps["app"]
+	if !app.Enabled {
+		t.Fatalf("Enabled = false, want true (default when omitted)")
+	}
 	if app.StopCommand != "" {
 		t.Fatalf("StopCommand = %q, want empty string", app.StopCommand)
 	}
@@ -146,6 +149,7 @@ func TestSaveConfigOmitsDefaultValues(t *testing.T) {
 	apps := map[string]*App{
 		"minimal": {
 			Command:        `C:\bin\app.exe`,
+			Enabled:        true, // default
 			Args:           []string{},
 			StopArgs:       []string{},
 			MaxRetries:     -1, // default
@@ -153,7 +157,7 @@ func TestSaveConfigOmitsDefaultValues(t *testing.T) {
 		},
 		"explicit": {
 			Command:           `C:\bin\other.exe`,
-			Enabled:           true,
+			Enabled:           false, // explicit "temporarily off" — must be written
 			Args:              []string{"--flag"},
 			CWD:               `C:\work`,
 			HideWindow:        true,
@@ -192,7 +196,7 @@ func TestSaveConfigOmitsDefaultValues(t *testing.T) {
 	// The explicit entry must round-trip every non-default field.
 	expected := []string{
 		`command = 'C:\bin\other.exe'`,
-		"enabled = true",
+		"enabled = false",
 		`args = ['--flag']`,
 		`cwd = 'C:\work'`,
 		"hide_window = true",
@@ -217,11 +221,17 @@ func TestSaveConfigOmitsDefaultValues(t *testing.T) {
 	if loaded["minimal"].MaxRetries != -1 {
 		t.Errorf("minimal.MaxRetries = %d, want -1", loaded["minimal"].MaxRetries)
 	}
+	if !loaded["minimal"].Enabled {
+		t.Errorf("minimal.Enabled = false, want true (default)")
+	}
 	if loaded["minimal"].StopTimeoutSec != 5 {
 		t.Errorf("minimal.StopTimeoutSec = %d, want 5", loaded["minimal"].StopTimeoutSec)
 	}
 	if loaded["explicit"].MaxRetries != 0 {
 		t.Errorf("explicit.MaxRetries = %d, want 0", loaded["explicit"].MaxRetries)
+	}
+	if loaded["explicit"].Enabled {
+		t.Errorf("explicit.Enabled = true, want false (explicitly disabled)")
 	}
 	if loaded["explicit"].StopTimeoutSec != 10 {
 		t.Errorf("explicit.StopTimeoutSec = %d, want 10", loaded["explicit"].StopTimeoutSec)
@@ -237,7 +247,7 @@ func TestSaveConfigWritesFieldsInFixedOrder(t *testing.T) {
 	apps := map[string]*App{
 		"app": {
 			Command:           `C:\bin\app.exe`,
-			Enabled:           true,
+			Enabled:           false, // non-default so it gets written and we can verify order
 			Args:              []string{"--flag"},
 			CWD:               `C:\work`,
 			HideWindow:        true,

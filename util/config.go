@@ -175,6 +175,9 @@ func LoadConfig(path string) (map[string]*App, error) {
 	for name, app := range raw {
 		app.Name = name
 		if table, ok := rawTables[name]; ok {
+			if _, ok := table["enabled"]; !ok {
+				app.Enabled = true
+			}
 			if _, ok := table["max_retries"]; !ok {
 				// Default: infinite retries when omitted.
 				app.MaxRetries = -1
@@ -264,8 +267,9 @@ func marshalApps(apps map[string]*App) map[string]appTOML {
 	out := make(map[string]appTOML, len(apps))
 	for name, app := range apps {
 		t := appTOML{Command: app.Command}
-		if app.Enabled {
-			v := true
+		if !app.Enabled {
+			// Default is true; only persist the explicit "temporarily off" case.
+			v := false
 			t.Enabled = &v
 		}
 		if len(app.Args) > 0 {

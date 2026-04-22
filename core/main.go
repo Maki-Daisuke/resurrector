@@ -19,10 +19,8 @@ import (
 var iconData []byte
 
 var defaultConfigFile = []byte(`["Test Ping App"]
-enabled = true
 command = "cmd.exe"
 args = ["/c", "echo", "Starting ping...", "&&", "ping", "127.0.0.1", "-n", "10"]
-cwd = ""
 restart_delay_sec = 2
 healthy_timeout_sec = 5
 hide_window = false
