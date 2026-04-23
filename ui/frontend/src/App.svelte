@@ -84,7 +84,7 @@
         color = "bg-red-100 text-red-800 dark:bg-red-200 dark:text-red-900";
         break;
     }
-    return `<span class="px-2.5 py-0.5 rounded text-xs font-semibold ${color}">${params.value}</span>`;
+    return `<span class="px-2.5 py-0.5 rounded-sm text-xs font-semibold ${color}">${params.value}</span>`;
   }
 
   function enabledRenderer(params: any) {
@@ -93,7 +93,7 @@
     const color = isEnabled
       ? "bg-blue-100 text-blue-800 dark:bg-blue-200 dark:text-blue-900"
       : "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300";
-    return `<span class="px-2.5 py-0.5 rounded text-xs font-semibold ${color}">${isEnabled ? "Enabled" : "Disabled"}</span>`;
+    return `<span class="px-2.5 py-0.5 rounded-sm text-xs font-semibold ${color}">${isEnabled ? "Enabled" : "Disabled"}</span>`;
   }
 
   function commandRenderer(params: any) {
@@ -371,7 +371,7 @@
   <div
     class="w-full flex-1 shadow-2xl sm:rounded-lg flex flex-col overflow-hidden bg-white dark:bg-gray-800"
   >
-    <div class="ag-theme-alpine w-full h-full flex-grow">
+    <div class="ag-theme-alpine w-full h-full grow">
       <AgGridSvelte
         rowData={appList}
         {columnDefs}
