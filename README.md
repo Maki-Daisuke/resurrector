@@ -2,30 +2,67 @@
 
 > **Never let your critical Windows applications stay dead.**
 
-Resurrector is a lightweight process monitoring and auto-restart tool for Windows.
+Resurrector is a lightweight tool for Windows that **launches, monitors, and auto-restarts** the applications you tell it to keep alive.
 
 It is designed to ensure that critical applications remain running within the **Interactive Session** (the desktop session where you are logged in), effortlessly resurrecting (restarting) them if they crash or terminate unexpectedly.
 
-## Features
+## Why Resurrector?
 
-- **Strict Lifecycle Control**: Resurrector completely owns the lifecycle of monitored apps. It spawns them as child processes bound to a **Windows Job Object**, guaranteeing that apps (and their subprocesses) cleanly terminate when stopped.
-- **Config-as-Code (SSoT)**: `config.toml` acts as the definitive Single Source of Truth. The core uses `fsnotify` to track changes in real-time and reconciles the system state automatically. Changes via the UI or external editors are applied instantly without restarting the core.
-- **Modern Management UI**: The configuration provides a user-friendly way to manage monitored applications. The UI only launches when called from the system tray and frees all memory when closed.
-- **Windows-Native Integration**: The tray menu can toggle auto-start at Windows sign-in for the current user, and the core enforces a single running instance per Windows session.
-- **Zero-Polling Monitoring**: Event-driven monitoring using Windows API (`WaitForSingleObject`). It does not waste CPU resources.
-- **Minimal Footprint**: The resident core process is written in pure Go and consumes only a few megabytes of memory.
+Crashy background apps, dev servers that die silently, utilities that need to stay alive — Resurrector keeps them all up without getting in your way.
 
-For more technical details about the architecture, IPC, and reconciliation loop, please see [Design & Architecture](./doc/design.md).
+- **Reliable lifecycle management** — Monitored processes (and their subprocesses) are bound to a Windows **Job Object**, so they terminate cleanly when stopped. No zombies left behind.
+- **Live config reload** — Changes to `config.toml` are applied instantly. No need to restart Resurrector, whether you edit via the built-in UI or an external editor.
+- **Minimal memory footprint** — The resident background process is written in pure Go and consumes only a few megabytes.
+- **Zero-polling monitoring** — Event-driven via the Windows API (`WaitForSingleObject`). Idle CPU usage is effectively zero.
 
-## Configuration (`config.toml`)
+For the architecture, IPC, and reconciliation loop, see [Design & Architecture](./doc/design.md).
 
-Applications to be monitored are managed via a `config.toml` file. By default, this is located in `%USERPROFILE%\.config\resurrector\config.toml`. The file is automatically created with sample content when you launch the core application for the first time. You can also specify a custom configuration file path using the `-f <path>` command-line argument.
+## Installation
+
+### Option A: Download from GitHub Releases (recommended)
+
+1. Grab the latest `resurrector-<version>-windows-amd64.zip` from the [Releases page](../../releases).
+2. Extract it anywhere you like (e.g. `%LOCALAPPDATA%\Programs\Resurrector\`).
+3. Run `resurrector.exe`.
+
+### Option B: Build from source
+
+See [Building from source](#building-from-source) below.
+
+## Quick Start
+
+1. Run `resurrector.exe`. An icon appears in the system tray.
+2. Right-click the tray icon and select **Open Settings** to launch the management UI.
+3. Add the apps you want monitored and save. Resurrector starts watching them immediately.
+
+## Usage
+
+### Tray Menu
+
+- **Open Settings**: Launches the management UI. If the UI is already open, Resurrector does not launch a second copy.
+- **Auto-start Resurrector**: Toggles Windows sign-in auto-start for the current user by updating `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
+- **Quit**: Stops all monitored processes and exits Resurrector.
+
+### Startup Behavior
+
+- Only one instance of Resurrector may run per Windows session. Launching a second copy shows an error dialog and exits.
+- On first launch, if the config file does not exist, Resurrector creates it with sample content automatically.
+- If the config file is invalid at startup, Resurrector shows an error dialog and exits.
+- If the config file becomes invalid while Resurrector is already running, the current monitored state is kept and the change is ignored until the file is fixed.
+
+## Configuration
+
+### File Location
+
+Applications to be monitored are managed via a `config.toml` file, located at `%USERPROFILE%\.config\resurrector\config.toml` by default. The file is automatically created with sample content on first launch. You can override the path with the `-f <path>` CLI flag.
 
 > [!WARNING]
-> Because Resurrector watches this file for real-time changes using `fsnotify`, **Atomic Writes** are required if modified by external tools. The built-in UI handles this automatically. If using external scripts, write to a `.tmp` file and perform an atomic rename/move.
->
+> Resurrector watches this file for real-time changes using `fsnotify`, so **atomic writes are required** when modifying it with external tools. The built-in UI handles this automatically. If using external scripts, write to a `.tmp` file and perform an atomic rename/move.
+
 > [!TIP]
-> While the TOML file requires arguments as a string array (`args = ["-a", "-b"]`), the **Management UI** allows you to enter them as a single shell-like string (e.g. `-a -b "quoted string"`), which it then parses automatically.
+> While the TOML file requires arguments as a string array (`args = ["-a", "-b"]`), the management UI accepts them as a single shell-like string (e.g. `-a -b "quoted string"`) and parses them automatically.
+
+### Example
 
 ```toml
 # Resurrector Configuration
@@ -46,22 +83,35 @@ cwd = 'C:\Users\user\projects\my-svelte-app'
 enabled = false
 ```
 
-### Item Definitions
+### Field Reference
 
-- `[name]` (String): The identifier name displayed on the UI.
-- `command` (String): The full path to the command or executable. **(Mandatory)**. If a relative path or just a command name (e.g., `npm`) is provided, Resurrector will attempt to resolve the absolute path using the system PATH.
-- `args` (Array of Strings): List of arguments to pass to the command. (Default: `[]`)
-- `cwd` (String): The working directory (current directory) for running the command. (Default: The directory where the resolved `command` is located)
-- `enabled` (Boolean): If `true`, starts monitoring on startup or UI request. (Default: `true`)
-- `hide_window` (Boolean): If `true`, launches the process in the background (hidden window). (Default: `false`)
-- `restart_delay_sec` (Integer): The wait time (seconds) before attempting a restart after detecting a process termination. (Default: `0`)
-- `max_retries` (Integer): Retry count limit for a crashing app. `0` means no retry; negative values mean infinite retry. (Default: `-1` / Infinite retry)
-- `healthy_timeout_sec` (Integer): If the process runs for at least this many seconds before exiting, the restart counter is reset to 0. `0` disables that reset (the counter increments on every exit). (Default: `0`)
-- `stop_command` (String): Optional shutdown executable. If a relative path or just a command name (e.g., `taskkill`) is provided, Resurrector will attempt to resolve the absolute path using the system PATH. (Default: `""`)
-- `stop_args` (Array of Strings): List of arguments passed to `stop_command`. Not shell-parsed. If shell features are needed, explicitly invoke a shell such as `cmd.exe` or `powershell.exe` as the `stop_command`. See [Placeholders and Environment Variables](#placeholders-and-environment-variables) below for how `${PID}` and `${NAME}` expand inside each argument. (Default: `[]`)
-- `stop_timeout_sec` (Integer): How long Resurrector waits for graceful shutdown attempts before falling back to `TerminateProcess`. (Default: `5`)
+Each top-level TOML table (`[name]`) defines a single monitored app. `name` is the identifier shown in the UI.
 
-### Placeholders and Environment Variables
+| Field                 | Type         | Default                         | Description                                                                                                                                                                                                                                               |
+| --------------------- | ------------ | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `command`             | String       | —                               | **Required.** Full path to the command or executable. If a relative path or bare command name (e.g. `npm`) is given, the absolute path is resolved via the system `PATH`.                                                                                 |
+| `args`                | String array | `[]`                            | Arguments passed to `command`.                                                                                                                                                                                                                            |
+| `cwd`                 | String       | Directory of resolved `command` | Working directory when launching the process.                                                                                                                                                                                                             |
+| `enabled`             | Boolean      | `true`                          | Whether Resurrector launches and monitors this app. Set to `false` to keep the entry defined but paused (it will not be started automatically, and the UI shows it as disabled).                                                                          |
+| `hide_window`         | Boolean      | `false`                         | If `true`, launches the process in the background (hidden window).                                                                                                                                                                                        |
+| `restart_delay_sec`   | Integer      | `0`                             | Wait time (seconds) before attempting a restart after detecting termination.                                                                                                                                                                              |
+| `max_retries`         | Integer      | `-1` (infinite)                 | Retry count limit for a crashing app. `0` disables retry; negative values mean infinite retry.                                                                                                                                                            |
+| `healthy_timeout_sec` | Integer      | `0`                             | If the process runs for at least this many seconds before exiting, the restart counter resets to 0. `0` disables the reset (the counter increments on every exit).                                                                                        |
+| `stop_command`        | String       | `""`                            | Optional shutdown executable. Resolved via system `PATH` if relative. See [Stop behavior](#stop-behavior).                                                                                                                                                |
+| `stop_args`           | String array | `[]`                            | Arguments passed to `stop_command`. Not shell-parsed; invoke `cmd.exe` / `powershell.exe` explicitly if shell features are needed. Supports `${PID}` / `${NAME}` (see [Placeholders and environment variables](#placeholders-and-environment-variables)). |
+| `stop_timeout_sec`    | Integer      | `5`                             | How long to wait for graceful shutdown before falling back to `TerminateProcess`.                                                                                                                                                                         |
+
+## Advanced Usage
+
+### CLI Options
+
+| Flag                       | Description                                                                             |
+| -------------------------- | --------------------------------------------------------------------------------------- |
+| `-f <path>`                | Custom path to `config.toml`. Default: `%USERPROFILE%\.config\resurrector\config.toml`. |
+| `-log-file <path>`         | Write logs to the specified file in append mode. Default: `stderr`.                     |
+| `-log-format <text\|json>` | Log output format. Default: `text`.                                                     |
+
+### Placeholders and environment variables
 
 The `command`, `args`, `cwd`, `stop_command`, and `stop_args` fields all support placeholder expansion:
 
@@ -81,7 +131,7 @@ stop_args = ["/PID", "${PID}", "/T"]
 
 Expansion is single-pass (expanded values are not re-scanned for placeholders), so the content of environment variables is always treated literally.
 
-### Stop Behavior
+### Stop behavior
 
 If `stop_command` is specified, Resurrector runs it first and waits up to `stop_timeout_sec` for the monitored process to exit.
 
@@ -99,64 +149,36 @@ If `stop_command` is not specified, Resurrector chooses the best-effort graceful
 2. Otherwise, send `CTRL_BREAK_EVENT` to the child's process group.
 3. If the process is still alive after `stop_timeout_sec`, call `TerminateProcess`.
 
-## Build
+## Building from source
 
-To build the entire project, run the following commands in the root directory:
+### Prerequisites
+
+- Go 1.26+
+- Node.js 22+ (LTS recommended)
+- pnpm (`npm install -g pnpm`, or see https://pnpm.io/installation)
+- Wails CLI (`go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0` — match the version pinned in `ui/go.mod` and `.github/workflows/release.yml`)
+
+### Build
+
+From the repository root:
 
 ```bash
 pnpm install
 pnpm run build
 ```
 
-The following files will be generated in the `build/` directory:
+Outputs in `build/`:
 
-- `resurrector.exe` (Core Process)
-- `resurrector-ui.exe` (UI Process)
+- `resurrector.exe` — Core process
+- `resurrector-ui.exe` — UI process
 
-## Usage
+## Architecture
 
-1. Run `build/resurrector.exe`.
-2. An icon will appear in the system tray.
-3. Right-click the icon and select "Open Settings" to launch the UI for configuring monitored applications.
-
-### Tray Menu
-
-- `Open Settings`: Launches the UI process. If the UI is already open, the core does not launch a second copy.
-- `Auto-start Resurrector`: Toggles Windows sign-in auto-start for the current user by updating `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
-- `Quit`: Stops all monitored processes owned by Resurrector and exits the core.
-
-### Startup Behavior
-
-- Only one core instance can run per Windows session. If you launch a second copy, Resurrector shows an error dialog and exits.
-- On first launch, if the config file does not exist, Resurrector creates it with sample content automatically.
-- If the config file is invalid during startup, Resurrector shows an error dialog and exits.
-- If the config file becomes invalid later while the core is already running, the current monitored state is kept and the change is ignored until the file is fixed.
-
-### UI Conveniences
-
-- The UI lets you edit `args` and `stop_args` as single shell-like strings instead of TOML string arrays.
-- You can browse for a `command` or `stop_command` path with a native file dialog.
-- You can drag and drop an executable or script file onto the UI window to start creating a new app entry.
-- Accepted command/script file extensions follow the current Windows `PATHEXT` environment variable.
-
-### CLI Options
-
-- `-f <path>`: Specifies a custom path to the `config.toml` file. If not provided, it defaults to `%USERPROFILE%\.config\resurrector\config.toml`.
-- `-log-file <path>`: Writes logs to the specified file in append mode. If not provided, logs are written to `stderr`.
-- `-log-format <text|json>`: Sets the log output format. Default is `text`.
-
-## Development
-
-### Prerequisites
-
-- Go 1.26+
-- Node.js 22+ (LTS recommended)
-- pnpm (`npm install -g pnpm` or see https://pnpm.io/installation)
-- Wails CLI (`go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0`; match the version pinned in `ui/go.mod` and `.github/workflows/release.yml`)
+Resurrector is split into two processes: a long-running **core** (`resurrector.exe`) that owns the monitored processes and a short-lived **UI** (`resurrector-ui.exe`) launched on demand from the tray. They communicate over a local IPC channel, and `config.toml` is the single source of truth reconciled on every change. See [doc/design.md](./doc/design.md) for details.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License — see the [LICENSE](./LICENSE) file for details.
 
 ## Author
 
