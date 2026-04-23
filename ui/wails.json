@@ -9,5 +9,8 @@
   "author": {
     "name": "Daisuke (yet another) Maki",
     "email": "maki.daisuke+gh@gmail.com"
+  },
+  "info": {
+    "productVersion": "1.1.0"
   }
 }
