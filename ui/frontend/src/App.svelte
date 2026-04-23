@@ -397,7 +397,7 @@
      ========================================================================= -->
 {#if dialogOpen}
   <!-- Backdrop -->
-  <div class="dialog-backdrop" on:click={closeDialog} role="presentation" />
+  <div class="dialog-backdrop" on:click={closeDialog} role="presentation"></div>
 
   <!-- Modal -->
   <div
