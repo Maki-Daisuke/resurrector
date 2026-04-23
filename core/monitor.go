@@ -223,7 +223,19 @@ func (m *Monitor) monitorLoop() {
 			m.restartCount++
 			if cfg.MaxRetries >= 0 && m.restartCount > cfg.MaxRetries {
 				m.setState(StateFailed)
+				retries := m.restartCount - 1
 				m.mu.Unlock()
+				slog.Error("app marked as Failed: start retries exhausted",
+					slog.String("component", "monitor"),
+					slog.String("app", cfg.Name),
+					slog.Int("retries", retries),
+					slog.Int("max_retries", cfg.MaxRetries),
+					slog.Any("error", err),
+				)
+				showErrorDialog(
+					"Resurrector - App Failed",
+					fmt.Sprintf("%q failed to start after %d retries and has been marked as Failed.\n\nLast error:\n%v", cfg.Name, retries, err),
+				)
 				return
 			}
 			m.setState(StateRetrying)
@@ -293,7 +305,20 @@ func (m *Monitor) monitorLoop() {
 
 		if m.config.MaxRetries >= 0 && m.restartCount > m.config.MaxRetries {
 			m.setState(StateFailed)
+			name := m.config.Name
+			retries := m.restartCount - 1
+			maxRetries := m.config.MaxRetries
 			m.mu.Unlock()
+			slog.Error("app marked as Failed: restart retries exhausted",
+				slog.String("component", "monitor"),
+				slog.String("app", name),
+				slog.Int("retries", retries),
+				slog.Int("max_retries", maxRetries),
+			)
+			showErrorDialog(
+				"Resurrector - App Failed",
+				fmt.Sprintf("%q exited repeatedly and has been marked as Failed after %d restarts.", name, retries),
+			)
 			return
 		}
 
