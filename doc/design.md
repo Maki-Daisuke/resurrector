@@ -59,7 +59,7 @@ To minimize system resource consumption, Resurrector consists of two independent
 ### 2. UI Process (`resurrector-ui.exe`)
 
 - **Role**: Configuration screen for the user, real-time display of monitoring status. Provides a management interface to Create, Read, Update, and Delete (CRUD) entries in `config.toml` via a Wails bridge.
-- **Technology**: Go + Wails + Svelte (TypeScript)
+- **Technology**: Go + Wails v2 + Svelte 5 (runes mode, TypeScript) + Tailwind CSS v4. AG Grid (Community)
 - **Features**: Uses a custom Wails logger. By default logs go to `STDERR`; the core then uses the UI process's `STDIN` as a unidirectional line-based JSON status stream. When `-log-file` is specified, logs are appended to that file instead. The UI **writes directly to `config.toml`** (using atomic writes) when the user makes configuration changes — the core detects these changes via fsnotify and reconciles automatically.
 - **Config Bridge**: Implements a `config_bridge.go` that exposes an `AppConfig` DTO (Data Transfer Object) to the frontend. This DTO handles:
   - Field name mapping (e.g., camelCase for JSON/TypeScript, snake_case for TOML).
@@ -293,7 +293,12 @@ Because a Windows process can only be attached to **one** console at a time (the
 │   ├── main.go             # Wails entry point
 │   ├── app.go              # Wails lifecycle and IPC setup
 │   ├── config_bridge.go    # Bridge for CRUD operations on config.toml
-│   └── frontend/           # Svelte application (UI screens)
+│   └── frontend/           # Svelte 5 (runes mode) + TypeScript + Tailwind CSS v4
+│       └── src/
+│           ├── App.svelte   # Main window: process status table and edit dialog
+│           ├── AgGrid.svelte# Thin wrapper around AG Grid's vanilla createGrid API
+│           ├── main.ts      # Mounts App via svelte#mount and registers AG Grid modules
+│           └── style.css    # Tailwind entrypoint with inline @theme / @custom-variant config
 ├── util/                   # Common utilities
 │   ├── config.go           # TOML parsing, Atomic writes, Shell-like arg parsing
 │   ├── expand.go           # ${NAME} / ${PID} / $$ placeholder expansion
@@ -312,4 +317,4 @@ Because a Windows process can only be attached to **one** console at a time (the
 - Go 1.26+
 - Node.js 22+ (LTS recommended)
 - pnpm (`npm install -g pnpm` or see https://pnpm.io/installation)
-- Wails CLI (`go install github.com/wailsapp/wails/v2/cmd/wails@latest`)
+- Wails CLI (`go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0`; match the version pinned in `ui/go.mod` and `.github/workflows/release.yml`)

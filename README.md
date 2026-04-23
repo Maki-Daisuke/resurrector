@@ -152,7 +152,7 @@ The following files will be generated in the `build/` directory:
 - Go 1.26+
 - Node.js 22+ (LTS recommended)
 - pnpm (`npm install -g pnpm` or see https://pnpm.io/installation)
-- Wails CLI (`go install github.com/wailsapp/wails/v2/cmd/wails@latest`)
+- Wails CLI (`go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0`; match the version pinned in `ui/go.mod` and `.github/workflows/release.yml`)
 
 ## License
 
