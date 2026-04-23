@@ -32,7 +32,7 @@
   // ---------------------------------------------------------------------------
   // State: process monitor table
   // ---------------------------------------------------------------------------
-  let apps: Record<string, AppStateInfo> = {};
+  let apps: Record<string, AppStateInfo> = $state({});
 
   onMount(() => {
     EventsOn("app_state_update", (dataStr: string) => {
@@ -59,7 +59,7 @@
     OnFileDropOff();
   });
 
-  $: appList = Object.values(apps);
+  let appList = $derived(Object.values(apps));
 
   // ---------------------------------------------------------------------------
   // Cell renderers
@@ -136,22 +136,22 @@
   // ---------------------------------------------------------------------------
   // Edit Dialog State
   // ---------------------------------------------------------------------------
-  let dialogOpen = false;
-  let confirmDelete = false;
-  let isSaving = false;
-  let isPickingCommand = false;
-  let isPickingStopCommand = false;
-  let errorMessage = "";
-  let isCreateMode = false;
+  let dialogOpen = $state(false);
+  let confirmDelete = $state(false);
+  let isSaving = $state(false);
+  let isPickingCommand = $state(false);
+  let isPickingStopCommand = $state(false);
+  let errorMessage = $state("");
+  let isCreateMode = $state(false);
 
   let commandDropExtensions = [".exe", ".cmd", ".bat", ".com", ".ps1", ".vbs"];
   (async () => {
     commandDropExtensions = await getCommandExtensions();
   })();
 
-  let editingOriginalName = "";
+  let editingOriginalName = $state("");
 
-  let editForm: main.AppConfig = makeEmptyForm();
+  let editForm: main.AppConfig = $state(makeEmptyForm());
 
   function makeEmptyForm(): main.AppConfig {
     return {
@@ -382,7 +382,7 @@
       />
     </div>
     <div class="toolbar">
-      <button class="btn btn-primary" type="button" on:click={openCreateDialog}
+      <button class="btn btn-primary" type="button" onclick={openCreateDialog}
         >Add</button
       >
     </div>
@@ -397,7 +397,7 @@
      ========================================================================= -->
 {#if dialogOpen}
   <!-- Backdrop -->
-  <div class="dialog-backdrop" on:click={closeDialog} role="presentation"></div>
+  <div class="dialog-backdrop" onclick={closeDialog} role="presentation"></div>
 
   <!-- Modal -->
   <div
@@ -425,14 +425,14 @@
         <div class="confirm-buttons">
           <button
             class="btn btn-ghost"
-            on:click={handleDeleteCancel}
+            onclick={handleDeleteCancel}
             disabled={isSaving}
           >
             Cancel
           </button>
           <button
             class="btn btn-danger"
-            on:click={handleDeleteConfirm}
+            onclick={handleDeleteConfirm}
             disabled={isSaving}
           >
             {isSaving ? "Deleting…" : "Yes, Delete"}
@@ -441,7 +441,13 @@
       </div>
     {:else}
       <!-- ── Form ──────────────────────────────────────────────────────── -->
-      <form class="dialog-form" on:submit|preventDefault={handleSave}>
+      <form
+        class="dialog-form"
+        onsubmit={(e) => {
+          e.preventDefault();
+          handleSave();
+        }}
+      >
         <!-- App Name -->
         <div class="field field-full">
           <label class="field-label" for="field-name"
@@ -472,7 +478,7 @@
             <button
               type="button"
               class="btn btn-ghost btn-compact"
-              on:click={handleBrowseCommand}
+              onclick={handleBrowseCommand}
               disabled={isSaving || isPickingCommand}
             >
               {isPickingCommand ? "Opening..." : "Browse..."}
@@ -555,7 +561,7 @@
             <button
               type="button"
               class="btn btn-ghost btn-compact"
-              on:click={handleBrowseStopCommand}
+              onclick={handleBrowseStopCommand}
               disabled={isSaving || isPickingStopCommand}
             >
               {isPickingStopCommand ? "Opening..." : "Browse..."}
@@ -596,7 +602,7 @@
                 min="0"
                 max="3600"
                 bind:value={editForm.stopTimeoutSec}
-                on:change={() =>
+                onchange={() =>
                   (editForm.stopTimeoutSec = clampInt(
                     editForm.stopTimeoutSec,
                     0,
@@ -618,7 +624,7 @@
                 min="0"
                 max="3600"
                 bind:value={editForm.restartDelaySec}
-                on:change={() =>
+                onchange={() =>
                   (editForm.restartDelaySec = clampInt(
                     editForm.restartDelaySec,
                     0,
@@ -644,7 +650,7 @@
                 min="-1"
                 max="999"
                 bind:value={editForm.maxRetries}
-                on:change={() =>
+                onchange={() =>
                   (editForm.maxRetries = clampInt(
                     editForm.maxRetries,
                     -1,
@@ -666,7 +672,7 @@
                 min="0"
                 max="3600"
                 bind:value={editForm.healthyTimeoutSec}
-                on:change={() =>
+                onchange={() =>
                   (editForm.healthyTimeoutSec = clampInt(
                     editForm.healthyTimeoutSec,
                     0,
@@ -688,7 +694,7 @@
             <button
               type="button"
               class="btn btn-danger-ghost"
-              on:click={handleDeleteClick}
+              onclick={handleDeleteClick}
               disabled={isSaving}
             >
               Delete
@@ -698,7 +704,7 @@
             <button
               type="button"
               class="btn btn-ghost"
-              on:click={closeDialog}
+              onclick={closeDialog}
               disabled={isSaving}
             >
               Cancel

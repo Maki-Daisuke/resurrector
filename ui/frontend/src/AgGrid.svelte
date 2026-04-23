@@ -12,20 +12,31 @@
   // Props
   // ---------------------------------------------------------------------------
   type T = any;
-  export let rowData: T[] = [];
-  export let columnDefs: ColDef<T>[] = [];
-  export let defaultColDef: ColDef<T> | undefined = undefined;
-  export let rowSelection: GridOptions<T>["rowSelection"] = undefined;
-  export let overlayNoRowsTemplate: string | undefined = undefined;
-  export let onRowDoubleClicked:
-    | ((event: RowDoubleClickedEvent<T>) => void)
-    | undefined = undefined;
+  interface Props {
+    rowData?: T[];
+    columnDefs?: ColDef<T>[];
+    defaultColDef?: ColDef<T> | undefined;
+    rowSelection?: GridOptions<T>["rowSelection"];
+    overlayNoRowsTemplate?: string | undefined;
+    onRowDoubleClicked?:
+      | ((event: RowDoubleClickedEvent<T>) => void)
+      | undefined;
+  }
+
+  let {
+    rowData = [],
+    columnDefs = [],
+    defaultColDef = undefined,
+    rowSelection = undefined,
+    overlayNoRowsTemplate = undefined,
+    onRowDoubleClicked = undefined,
+  }: Props = $props();
 
   // ---------------------------------------------------------------------------
   // Internal state
   // ---------------------------------------------------------------------------
-  let containerEl: HTMLDivElement;
-  let api: GridApi<T> | undefined;
+  let containerEl: HTMLDivElement | undefined = $state();
+  let api: GridApi<T> | undefined = $state();
 
   onMount(() => {
     const options: GridOptions<T> = {
@@ -36,7 +47,7 @@
       overlayNoRowsTemplate,
       onRowDoubleClicked,
     };
-    api = createGrid(containerEl, options);
+    api = createGrid(containerEl!, options);
   });
 
   onDestroy(() => {
@@ -47,10 +58,16 @@
   // ---------------------------------------------------------------------------
   // Reactive prop sync (after initial mount)
   // ---------------------------------------------------------------------------
-  $: if (api) api.setGridOption("rowData", rowData);
-  $: if (api) api.setGridOption("columnDefs", columnDefs);
-  $: if (api && defaultColDef !== undefined)
-    api.setGridOption("defaultColDef", defaultColDef);
+  $effect(() => {
+    if (api) api.setGridOption("rowData", rowData);
+  });
+  $effect(() => {
+    if (api) api.setGridOption("columnDefs", columnDefs);
+  });
+  $effect(() => {
+    if (api && defaultColDef !== undefined)
+      api.setGridOption("defaultColDef", defaultColDef);
+  });
 </script>
 
 <div bind:this={containerEl} class="ag-grid-wrapper"></div>
