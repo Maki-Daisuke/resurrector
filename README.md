@@ -6,6 +6,8 @@ Resurrector is a lightweight tool for Windows that **launches, monitors, and aut
 
 It is designed to ensure that critical applications remain running within the **Interactive Session** (the desktop session where you are logged in), effortlessly resurrecting (restarting) them if they crash or terminate unexpectedly.
 
+![Management UI](https://github.com/user-attachments/assets/adf4f2b3-1ec4-4c87-b8a2-191053bf6aa1)
+
 ## Why Resurrector?
 
 Crashy background apps, dev servers that die silently, utilities that need to stay alive — Resurrector keeps them all up without getting in your way.
@@ -38,6 +40,8 @@ See [Building from source](#building-from-source) below.
 ## Usage
 
 ### Tray Menu
+
+![Tray menu](https://github.com/user-attachments/assets/7bdcc088-7cee-40ac-b958-f22813615e30)
 
 - **Open Settings**: Launches the management UI. If the UI is already open, Resurrector does not launch a second copy.
 - **Auto-start Resurrector**: Toggles Windows sign-in auto-start for the current user by updating `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
