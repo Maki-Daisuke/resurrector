@@ -25,10 +25,10 @@ importers:
         specifier: ^3.0.0
         version: 3.0.0
       autoprefixer:
-        specifier: ^10.4.27
+        specifier: ^10.5.0
         version: 10.5.0(postcss@8.5.10)
       postcss:
-        specifier: ^8.5.8
+        specifier: ^8.5.10
         version: 8.5.10
       svelte:
         specifier: ^3.49.0
@@ -43,7 +43,7 @@ importers:
         specifier: ^3.4.19
         version: 3.4.19
       tslib:
-        specifier: ^2.4.0
+        specifier: ^2.8.1
         version: 2.8.1
       typescript:
         specifier: ^4.6.4
