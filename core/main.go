@@ -2,14 +2,17 @@ package main
 
 import (
 	_ "embed"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 	"unsafe"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/pelletier/go-toml/v2"
 	"golang.org/x/sys/windows"
 
 	"resurrector/util"
@@ -39,6 +42,27 @@ func showErrorDialog(title, message string) {
 	const mbOK = 0x00000000
 	const mbIconError = 0x00000010
 	procMessageBox.Call(0, uintptr(unsafe.Pointer(messagePtr)), uintptr(unsafe.Pointer(titlePtr)), mbOK|mbIconError)
+}
+
+// logConfigLoadError emits a structured error log for a config load/reload
+// failure. When the underlying cause is a TOML parse error, row/column/key
+// are attached as separate fields for easy filtering.
+func logConfigLoadError(msg, configPath string, err error) {
+	attrs := []any{
+		slog.String("component", "main"),
+		slog.String("path", configPath),
+		slog.Any("error", err),
+	}
+	var de *toml.DecodeError
+	if errors.As(err, &de) {
+		row, col := de.Position()
+		attrs = append(attrs,
+			slog.Int("row", row),
+			slog.Int("column", col),
+			slog.String("key", strings.Join(de.Key(), ".")),
+		)
+	}
+	slog.Error(msg, attrs...)
 }
 
 // resolveConfigPath ensures the config directory/file exists and returns the path.
@@ -121,7 +145,7 @@ func main() {
 	// Initial config load
 	apps, err := util.LoadConfig(configPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to load config.toml:\n\n%v", err)
+		logConfigLoadError("failed to load config.toml", configPath, err)
 		showErrorDialog(
 			"Resurrector - Configuration Error",
 			fmt.Sprintf("Failed to load config.toml:\n\n%v", err),
@@ -283,11 +307,11 @@ func reloadAndReconcile(configPath string, reconciler *Reconciler) {
 	}
 
 	if err != nil {
-		// Invalid config — keep current state, log error
-		slog.Error("config reload failed after retries, keeping current state",
-			slog.String("component", "reload"),
-			slog.Int("attempts", maxRetries),
-			slog.Any("error", err),
+		// Invalid config — keep current state, log error and notify user
+		logConfigLoadError("config reload failed after retries, keeping current state", configPath, err)
+		showErrorDialog(
+			"Resurrector - Configuration Error",
+			fmt.Sprintf("Failed to reload config.toml. The previous configuration remains active.\n\n%v", err),
 		)
 		return
 	}

@@ -5,6 +5,7 @@ go 1.26.1
 require (
 	github.com/energye/systray v1.0.3
 	github.com/fsnotify/fsnotify v1.9.0
+	github.com/pelletier/go-toml/v2 v2.3.0
 	golang.org/x/sys v0.43.0
 )
 

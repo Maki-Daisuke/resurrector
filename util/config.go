@@ -153,7 +153,8 @@ func LoadConfig(path string) (map[string]*App, error) {
 	var raw map[string]*App
 	if err := toml.Unmarshal(b, &raw); err != nil {
 		if de, ok := err.(*toml.DecodeError); ok {
-			return nil, fmt.Errorf("parsing TOML config:\n%s", de.String())
+			row, col := de.Position()
+			return nil, fmt.Errorf("parsing TOML config at line %d, column %d:\n%s\n%w", row, col, de.String(), de)
 		}
 		return nil, fmt.Errorf("parsing TOML config: %w", err)
 	}
@@ -167,7 +168,8 @@ func LoadConfig(path string) (map[string]*App, error) {
 	var rawTables map[string]map[string]any
 	if err := toml.Unmarshal(b, &rawTables); err != nil {
 		if de, ok := err.(*toml.DecodeError); ok {
-			return nil, fmt.Errorf("parsing TOML config:\n%s", de.String())
+			row, col := de.Position()
+			return nil, fmt.Errorf("parsing TOML config at line %d, column %d:\n%s\n%w", row, col, de.String(), de)
 		}
 		return nil, fmt.Errorf("parsing TOML config: %w", err)
 	}
