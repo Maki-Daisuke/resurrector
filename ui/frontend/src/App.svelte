@@ -11,7 +11,7 @@
     DeleteAppConfig,
   } from "../wailsjs/go/main/App";
   import type { main } from "../wailsjs/go/models";
-  import AgGridSvelte from "ag-grid-svelte";
+  import AgGridSvelte from "./AgGrid.svelte";
   import type { ColDef } from "ag-grid-community";
   import "ag-grid-community/styles/ag-grid.css";
   import "ag-grid-community/styles/ag-theme-alpine.css";
