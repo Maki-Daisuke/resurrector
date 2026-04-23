@@ -174,12 +174,8 @@ pnpm run build
 
 Outputs in `build/`:
 
-- `resurrector.exe` — Core process
-- `resurrector-ui.exe` — UI process
-
-## Architecture
-
-Resurrector is split into two processes: a long-running **core** (`resurrector.exe`) that owns the monitored processes and a short-lived **UI** (`resurrector-ui.exe`) launched on demand from the tray. They communicate over a local IPC channel, and `config.toml` is the single source of truth reconciled on every change. See [doc/design.md](./doc/design.md) for details.
+- `resurrector.exe` — Background process that launches, monitors, and auto-restarts your apps
+- `resurrector-ui.exe` — Management UI launched on demand from the tray
 
 ## License
 
