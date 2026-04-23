@@ -34,10 +34,6 @@ var (
 
 // showErrorDialog displays a native Windows error dialog with the given title and message.
 func showErrorDialog(title, message string) {
-	slog.Warn("error dialog shown",
-		slog.String("component", "error_dialog"),
-		slog.String("message", message),
-	)
 	titlePtr, _ := windows.UTF16PtrFromString(title)
 	messagePtr, _ := windows.UTF16PtrFromString(message)
 	const mbOK = 0x00000000
