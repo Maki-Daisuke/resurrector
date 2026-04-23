@@ -44,6 +44,7 @@ See [Building from source](#building-from-source) below.
 ![Tray menu](https://github.com/user-attachments/assets/7bdcc088-7cee-40ac-b958-f22813615e30)
 
 - **Open Settings**: Launches the management UI. If the UI is already open, Resurrector does not launch a second copy.
+- **Open config with...**: Opens `config.toml` in an editor of your choice (via the Windows "Open with" dialog). Useful when you want to edit the file directly instead of using the UI.
 - **Auto-start Resurrector**: Toggles Windows sign-in auto-start for the current user by updating `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 - **Quit**: Stops all monitored processes and exits Resurrector.
 
