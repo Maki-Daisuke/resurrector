@@ -1,6 +1,6 @@
 # Resurrector Design & Architecture
 
-This document provides detailed information about the internal design, architecture, and development environment of Resurrector.
+This document provides detailed information about the internal design, architecture, and development environment of Resurrector. For the reasoning behind these design choices — the _why_, not just the _what_ — see [Design Rationales](./rationales.md).
 
 ## Design Philosophy
 

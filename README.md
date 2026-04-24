@@ -17,7 +17,7 @@ Crashy background apps, dev servers that die silently, utilities that need to st
 - **Minimal memory footprint** — The resident background process is written in pure Go and consumes only a few megabytes.
 - **Zero-polling monitoring** — Event-driven via the Windows API (`WaitForSingleObject`). Idle CPU usage is effectively zero.
 
-For the architecture, IPC, and reconciliation loop, see [Design & Architecture](./doc/design.md).
+For the architecture, IPC, and reconciliation loop, see [Design & Architecture](./doc/design.md). For the reasoning behind key design decisions — why the core and UI are separate processes, why stdio instead of named pipes...etc — see [Design Rationales](./doc/rationales.md).
 
 ## Installation
 
