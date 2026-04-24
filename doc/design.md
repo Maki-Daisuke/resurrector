@@ -1,20 +1,6 @@
 # Resurrector Design & Architecture
 
-This document provides detailed information about the internal design, architecture, and development environment of Resurrector. For the reasoning behind these design choices — the _why_, not just the _what_ — see [Design Rationales](./rationales.md).
-
-## Design Philosophy
-
-> **config.toml is the Single Source of Truth (SSoT).**
-
-Resurrector treats `config.toml` as a **declarative desired-state specification** — similar to how Kubernetes treats manifests, or how Terraform treats `.tf` files. The running system continuously observes the config file and **reconciles** the actual process state to match the desired state described in it.
-
-### Key Principles
-
-1. **Declarative over Imperative**: Users declare _what_ should be running, not _how_ to transition. The core reconciles the difference automatically.
-2. **Idempotent Reconciliation**: Applying the same config file repeatedly produces the same result. The reconciler compares desired state vs. actual state and performs only the necessary start/stop/restart actions to converge.
-3. **File-Watch Driven**: The core uses `fsnotify` to detect config file changes in real-time. No restart of the core process is required to pick up configuration changes.
-4. **Core is Read-Only After Bootstrap**: After startup initialization, the core process treats `config.toml` as read-only. Its only write is first-run bootstrap when the config file does not yet exist; after that it only reads and reacts. All ongoing config modifications are performed externally — either by the user editing the file directly or by the UI process writing to it.
-5. **Strict Lifecycle Ownership**: Resurrector entirely owns the lifecycle of the monitored processes. It launches them as child processes bound to a **Windows Job Object**. If Resurrector exits, all monitored processes are guaranteed to terminate with it.
+This document covers the internal architecture and implementation details of Resurrector — the _what_ and _how_. For the reasoning behind key design decisions, see [Design Rationales](./rationales.md).
 
 ## System Overview
 
@@ -24,9 +10,9 @@ Resurrector treats `config.toml` as a **declarative desired-state specification*
 |                                                                  |
 |            ~/.config/resurrector/config.toml                     |
 |                  (Single Source of Truth)                         |
-|                    ^                ^                             |
+|                    |                ^                             |
 |         (fsnotify) |                | (direct write)             |
-|           (read)   |                |                            |
+|           (read)   v                |                            |
 |  +-----------------+---+         +--+----------------+           |
 |  |   Core Process      |  (IPC)  |    UI Process     |          |
 |  | (resurrector.exe)   |-------->| (resurrector-ui)  |          |
@@ -43,42 +29,40 @@ Resurrector treats `config.toml` as a **declarative desired-state specification*
 +------------------------------------------------------------------+
 ```
 
-## Architecture
+`config.toml` is the **Single Source of Truth**: both the user and the UI write to it, and the core reads from it. The core never writes to it after first-run bootstrap. All config changes — from a text editor or the UI — flow through the same fsnotify-driven reconciliation path.
 
-To minimize system resource consumption, Resurrector consists of two independent binaries: a **"resident core process"** and a **"disposable UI process."**
+## Components
 
-### 1. Core Process (`resurrector.exe`)
+Resurrector consists of two independent binaries: a **resident core process** and a **disposable UI process**.
+
+### Core Process (`resurrector.exe`)
 
 - **Role**: Steady presence in the system tray. Watches `config.toml` for changes (read-only) and reconciles monitored processes to match the desired state. By default it reads from `~/.config/resurrector/config.toml`, but accepts CLI flags such as `-f <path>`, `-log-file <path>`, and `-log-format <text|json>`.
 - **Technology**: Go (Pure), `energye/systray`, `golang.org/x/sys/windows`, `github.com/fsnotify/fsnotify`
-- **Features**: Does not have a UI; it continues to operate extremely lightly. When "Open Settings" is clicked from the system tray, it launches the UI process as a child process and passes runtime flags (`-f`, `-log-file`, `-log-format`) to keep behavior consistent. On first launch, if `config.toml` does not exist yet, it bootstraps the file with sample content.
-- **Process Management**: Uses Windows Job Objects (`CreateJobObject`, `AssignProcessToJobObject`) to bind spawned child processes to its own lifecycle. This ensures that any command (even ones that spawn further sub-processes like `npm run start`) and its entire process tree are cleanly terminated when the core requests a stop or when the core process itself exits.
-- **Process Lifetime Rules**: A session-local named mutex allows only one core instance per Windows session. A second launch shows an error dialog and exits without starting monitoring or a second tray icon.
-- **Windows Integration**: The tray menu can toggle logon auto-start for the current user by writing to `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
+- **Startup**: On first launch, if `config.toml` does not exist, the core bootstraps the file with sample content. A session-local named mutex prevents more than one core instance per Windows session; a second launch shows an error dialog and exits.
+- **Tray**: Launches the UI process as a child process when "Open Settings" is clicked, passing runtime flags (`-f`, `-log-file`, `-log-format`) for consistent behavior. Can toggle logon auto-start for the current user via `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 
-### 2. UI Process (`resurrector-ui.exe`)
+### UI Process (`resurrector-ui.exe`)
 
-- **Role**: Configuration screen for the user, real-time display of monitoring status. Provides a management interface to Create, Read, Update, and Delete (CRUD) entries in `config.toml` via a Wails bridge.
-- **Technology**: Go + Wails v2 + Svelte 5 (runes mode, TypeScript) + Tailwind CSS v4. AG Grid (Community)
-- **Features**: Uses a custom Wails logger. By default logs go to `STDERR`; the core then uses the UI process's `STDIN` as a unidirectional line-based JSON status stream. When `-log-file` is specified, logs are appended to that file instead. The UI **writes directly to `config.toml`** (using atomic writes) when the user makes configuration changes — the core detects these changes via fsnotify and reconciles automatically.
-- **Config Bridge**: Implements a `config_bridge.go` that exposes an `AppConfig` DTO (Data Transfer Object) to the frontend. This DTO handles:
-  - Field name mapping (e.g., camelCase for JSON/TypeScript, snake_case for TOML).
-  - Command formatting: Converting `[]string` fields such as `args` and `stop_args` from TOML into single shell-like strings for user-friendly editing, and parsing them back using `util.ParseArgs`.
-- **UI Conveniences**: Provides a native file dialog for choosing a command path, supports drag-and-drop registration of executable/script files, and derives accepted file extensions from the current Windows `PATHEXT` environment variable.
-- **Termination**: The process terminates when the window is closed.
+- **Role**: Configuration screen and real-time monitoring status display. Provides CRUD access to `config.toml` entries via a Wails bridge.
+- **Technology**: Go + Wails v2 + Svelte 5 (runes mode, TypeScript) + Tailwind CSS v4 + AG Grid (Community)
+- **Config Bridge** (`config_bridge.go`): Exposes an `AppConfig` DTO to the frontend, handling field-name mapping (camelCase ↔ snake_case) and converting `[]string` fields such as `args` and `stop_args` into shell-like strings for editing, with `util.ParseArgs` for the reverse parse.
+- **Conveniences**: Native file dialog for choosing a command path, drag-and-drop registration of executables, file-extension filtering derived from `PATHEXT`.
+- **Writes**: The UI writes directly to `config.toml` using atomic operations (`util.SaveConfig`). The core detects the change via fsnotify and reconciles automatically. The UI never sends RPC commands to the core.
+- **Termination**: The process exits when the window is closed.
 
 ### Inter-Process Communication (IPC)
 
-Communication between the core and UI processes follows two distinct paths:
+Communication follows two distinct, intentionally narrow paths:
 
-1. **Status Updates (Core → UI)**: **Unidirectional** via standard I/O (stdio) using a synchronous, line-based JSON stream written by the core to the child UI process's `STDIN`. The core pushes process state updates (`MonitorStatus` JSON objects) to the UI.
-2. **Configuration Changes (UI → Core via File)**: The UI does **not** send RPC commands back to the core to change state. Instead, it writes changes directly to `config.toml` using atomic operations (`util.SaveConfig`). The core picks up these changes via its `fsnotify` loop.
+1. **Status updates (Core → UI)**: Unidirectional, via the UI child process's `STDIN`. The core writes a synchronous, line-based JSON stream of `MonitorStatus` objects.
+2. **Config changes (UI → Core)**: The UI does **not** send commands to the core. It writes `config.toml` atomically; the core picks up the change via fsnotify.
 
-This design keeps the core simple (read config, reconcile) and preserves the "config.toml as the Single Source of Truth" principle.
+This keeps the core simple (read config, reconcile) and avoids a second state-mutation interface alongside the config file.
 
-## Reconciliation Loop
+## Reconciliation
 
-The core of the system is a **reconciliation loop** driven by file-system events. All config changes — whether from the user editing `config.toml` in a text editor or from the UI writing to it via `util.SaveConfig` — follow the same path: an atomic write on disk, an fsnotify event, a re-parse, and a reconcile pass.
+The core drives a **reconciliation loop** on every config file change. All config writes — from a text editor or the UI — follow the same path: atomic write on disk → fsnotify event → re-parse → reconcile pass.
 
 ```text
                   ┌──────────────────────┐
@@ -108,7 +92,7 @@ The core of the system is a **reconciliation loop** driven by file-system events
                   └──────────────────────┘
 ```
 
-### Reconciliation Algorithm
+### Algorithm
 
 Given `desired` (from config.toml) and `current` (in-memory running state):
 
@@ -137,47 +121,42 @@ for each entry in current:
 
 ### Comparison Logic
 
-To determine whether an entry's config has been "modified" (requiring restart), the reconciler compares all fields that affect runtime behavior. Note that parameters undergo **validation and default application** (`util.ValidateAndApplyDefaults`) before comparison:
+Fields are compared after **validation and default application** (`util.ValidateAndApplyDefaults`):
 
-- `command`, `args`, `cwd` — The process identity
-- `hide_window` — Requires restart to change window visibility
-- `restart_delay_sec`, `healthy_timeout_sec`, `max_retries`, `stop_command`, `stop_args`, `stop_timeout_sec` — Can be updated in-place (hot-reload) without restarting the monitored process
+- `command`, `args`, `cwd`, `hide_window` — **Process-identity fields**: any change requires killing and restarting the process.
+- `restart_delay_sec`, `healthy_timeout_sec`, `max_retries`, `stop_command`, `stop_args`, `stop_timeout_sec` — **Monitoring-parameter fields**: updated in-place (hot-reload) without restarting the monitored process.
 
-### File Editing & Debouncing
+### Debouncing
 
-File-system events can fire multiple times for a single save operation (especially on Windows). The reconciler uses a debounce mechanism — after receiving an fsnotify event, it waits a short period (e.g. 500ms) for additional events before triggering reconciliation. This ensures that rapid successive writes (e.g. from a text editor) are coalesced into a single reconciliation pass.
+File-system events can fire multiple times for a single save (especially on Windows). The reconciler debounces events — after receiving an fsnotify event, it waits a short period (e.g. 500 ms) for additional events before triggering reconciliation, coalescing rapid successive writes into a single pass.
 
 > [!WARNING]
-> Because `fsnotify` can trigger before a file is completely written, **Atomic Writes** are strongly required. When the UI or an external tool updates `config.toml`, it should write to a `.tmp` file first and perform an atomic rename/move. The core's debouncer should also handle occasional "File in use / Access Denied" errors gracefully by retrying after a short delay.
+> Because `fsnotify` can trigger before a file is completely written, **atomic writes are required**. Write to a `.tmp` file first, then perform an atomic rename/move. The core's debouncer handles occasional "File in use / Access Denied" errors by retrying after a short delay.
 
-### Save Format (Minimal & Stable Order)
+### Error Handling
 
-`util.SaveConfig` writes `config.toml` so that it stays **human-friendly** and **diff-friendly** even when the UI is the one doing the writing:
-
-- **Default values are omitted.** Any field equal to its documented default (e.g. `enabled = true`, `max_retries = -1`, `stop_timeout_sec = 5`) is not written. `enabled` defaults to `true` because the mere presence of an entry in `config.toml` expresses the intent to manage that process; `enabled = false` is reserved for the "temporarily off" case and is therefore written when explicit. Only `command` is always present because it is mandatory and has no default. This keeps entries written by the UI visually close to the minimal entries a user would hand-write. `max_retries = 0` is a deliberately meaningful value ("no retry") and is distinct from the default, so it is written when set.
-- **Fields are written in a fixed, semantically meaningful order** — `command`, `args`, `cwd`, `enabled`, `hide_window`, `stop_command`, `stop_args`, `stop_timeout_sec`, `restart_delay_sec`, `max_retries`, `healthy_timeout_sec`. `go-toml/v2` sorts map keys alphabetically but preserves struct field declaration order, so `SaveConfig` marshals each entry through a dedicated struct (`appTOML`) whose field order defines the on-disk order. Table entries (`[app-name]` headers) remain sorted alphabetically by name, which is also deterministic.
-
-Together these two rules give round-trip stability: saving a config that was just loaded produces byte-identical output up to the user's own comments and whitespace, which minimises fsnotify churn and keeps version-controlled configs reviewable.
-
-### Error Handling on Config Reload
-
-If the new config file is **invalid** (parse error, malformed TOML), the core:
-
-1. Logs the error.
-2. **Keeps the current running state unchanged** — does not stop any processes.
-3. Waits for the next valid config change.
-
-This ensures that a typo in the config file does not accidentally kill running processes.
-
-### Error Handling at Startup
-
-Startup is intentionally stricter than live reload:
+**At startup** (strict):
 
 1. If `config.toml` does not exist, the core creates it with sample content and continues.
-2. If the initial config load fails after that (parse error, validation failure, unreadable file), the core shows a native Windows error dialog and exits.
-3. This prevents the tray from coming up in a partially initialized state with unknown monitoring behavior.
+2. If the initial load fails (parse error, validation failure, unreadable file), the core shows a native Windows error dialog and exits.
 
-## Per-Process Monitor Lifecycle
+**During live reload** (lenient):
+
+1. If the new config is invalid, the core logs the error and keeps the current running state unchanged.
+2. No processes are stopped. The core waits for the next valid config change.
+
+## Config File Format
+
+`util.SaveConfig` writes `config.toml` to stay **human-friendly** and **diff-friendly** across UI-driven writes:
+
+- **Default values are omitted.** Fields equal to their documented defaults (e.g. `enabled = true`, `max_retries = -1`, `stop_timeout_sec = 5`) are not written. `command` is always present (mandatory, no default). `max_retries = 0` is a meaningful value ("no retry") distinct from the default, and is written when set explicitly.
+- **Fields are written in a fixed semantic order**: `command`, `args`, `cwd`, `enabled`, `hide_window`, `stop_command`, `stop_args`, `stop_timeout_sec`, `restart_delay_sec`, `max_retries`, `healthy_timeout_sec`. This is enforced via a dedicated `appTOML` struct (preserving declaration order in `go-toml/v2`). Table headers are sorted alphabetically by app name.
+
+Together, these rules give **round-trip stability**: saving a just-loaded config produces byte-identical output (modulo user comments and whitespace), minimizing spurious fsnotify events and keeping version-controlled configs reviewable.
+
+## Process Monitoring
+
+### Lifecycle
 
 Each monitored process entry runs through the following state machine:
 
@@ -207,33 +186,11 @@ Each monitored process entry runs through the following state machine:
          └──────────┘
 ```
 
-## Stop Command and Automatic Stop Detection
+### Stop Behavior
 
-To stop a monitored process, Resurrector prefers an application-appropriate shutdown over an immediate `TerminateProcess`: if a `stop_command` is configured it is run first; otherwise Resurrector chooses a graceful mechanism automatically from observed runtime state. In both cases, `TerminateProcess` remains the final fallback after `stop_timeout_sec`.
+Resurrector prefers graceful shutdown over immediate `TerminateProcess`. `TerminateProcess` remains the final fallback after `stop_timeout_sec` in all cases.
 
-### Config Fields
-
-```toml
-["My App"]
-command = "myapp.exe"
-enabled = true
-stop_command = "taskkill"
-stop_args = ["/PID", "${PID}", "/T"]
-stop_timeout_sec = 5
-```
-
-- `stop_command` (String): Optional shutdown executable. Resolved via PATH if not an absolute path.
-- `stop_args` (Array of Strings): Arguments passed to `stop_command`. Not shell-parsed.
-- `stop_timeout_sec` (Integer): How long Resurrector waits for a graceful stop request to succeed before falling back to an explicit `TerminateProcess`. Default: `5`.
-- `${PID}`: Placeholder expanded inside `stop_args` to the monitored root process PID at stop time. `${NAME}` expands an environment variable (rejected if undefined); `$$` produces a literal `$`. These placeholders are also supported in `command`, `args`, `cwd`, and `stop_command`, except that `${PID}` is only valid in `stop_args`.
-
-### Semantics
-
-- If `stop_command` is configured, Resurrector executes it first and then waits up to `stop_timeout_sec` for the monitored process to exit.
-- If `stop_command` is omitted, Resurrector chooses the best-effort graceful stop method automatically from runtime observation.
-- In every case, if the process is still alive after the timeout, Resurrector calls `TerminateProcess` to guarantee convergence.
-
-### Stop Flow
+**Stop flow:**
 
 ```text
 STOP requested
@@ -257,25 +214,29 @@ is stop_command configured?
            -> else: call TerminateProcess
 ```
 
-### Design Notes
+**Notes:**
 
-- The shutdown command is split into `stop_command` (executable string) and `stop_args` (argv array), matching the `command` / `args` pair, so config stays unambiguous and Windows quoting rules remain explicit.
-- `stop_command` and `stop_args` are treated as argv, not shell syntax. If the user needs shell features, they should explicitly invoke `cmd.exe` or `powershell.exe`.
-- The success condition of `stop_command` is not its exit code alone; the monitored process must actually exit.
-- Automatic detection should be based on runtime observation rather than PE subsystem metadata alone. In particular, top-level window enumeration is more reliable than trying to classify the original command line statically.
-- `WM_CLOSE` targeting should exclude both the classic `ConsoleWindowClass` and the ConPTY-era `PseudoConsoleWindow` class, so that a console host does not accidentally become the preferred stop target for a console-oriented process.
-- `CTRL_BREAK_EVENT` remains narrower than Unix `SIGTERM`; it only works under specific console/process-group conditions, so it should be a best-effort fallback inside auto detection rather than a user-exposed mode.
-- Even with graceful modes, an explicit `TerminateProcess` remains the final convergence mechanism. The design goal is **graceful first, forceful fallback**, not graceful-only shutdown.
+- `stop_command` + `stop_args` mirror `command` + `args`: argv-based, not shell-parsed. Use `cmd.exe` / `powershell.exe` explicitly if shell features are needed.
+- Success is measured by whether the monitored process actually exits, not by the exit code of `stop_command`.
+- Auto-detection is based on runtime window enumeration, not PE subsystem metadata. `WM_CLOSE` targets exclude `ConsoleWindowClass` and `PseudoConsoleWindow` to avoid accidentally targeting a console host.
+- `CTRL_BREAK_EVENT` is a best-effort fallback, not a user-exposed mode. See [CTRL_BREAK_EVENT Delivery](#ctrl_break_event-delivery) for implementation constraints.
+- The goal is **graceful first, forceful fallback** — not graceful-only shutdown.
 
-### CTRL_BREAK_EVENT Delivery Details
+## Windows Implementation Notes
 
-To make `CTRL_BREAK_EVENT` actually reach the target child without side effects on the core process or other children, the implementation relies on three coordinated Windows behaviors:
+### Job Objects
 
-1. **Child spawn flags**: Every monitored child is started with `CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP`. Creating a new process group means the child's process-group ID is its own PID, and signals targeted at that group do not leak to the core process or to unrelated siblings.
-2. **Targeted group, not group 0**: `GenerateConsoleCtrlEvent` is invoked with `dwProcessGroupId = child PID`, not `0`. This confines the event to the child and its descendants, so the core process does not need to install a `SetConsoleCtrlHandler` filter to ignore its own BREAK.
-3. **Console attach handshake**: Before sending the event, the core calls `FreeConsole` (detach from any prior console) and then `AttachConsole(child PID)`. `GenerateConsoleCtrlEvent` requires the caller to share a console with the target. The attach is held for the full `stop_timeout_sec` window and released only after the child exits or the timeout elapses; detaching earlier can cause the event to be lost.
+Every monitored child is started with `CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP` and immediately assigned to a Windows Job Object (`CreateJobObject`, `AssignProcessToJobObject`). This binds the child's entire process tree to the core's lifetime: if Resurrector exits, all monitored processes are guaranteed to terminate with it — including sub-processes spawned by commands like `npm run start`.
 
-Because a Windows process can only be attached to **one** console at a time (the attach is per-process, not per-thread), concurrent `sendCtrlBreak` calls would race for the shared console state. The implementation serializes console attach/BREAK/detach across the package with a single mutex (`consoleAttachMu`). When many monitored children are stopped simultaneously, their `CTRL_BREAK_EVENT` deliveries run sequentially — each call waiting up to `stop_timeout_sec` — before escalating to `TerminateProcess`.
+### CTRL_BREAK_EVENT Delivery
+
+Delivering `CTRL_BREAK_EVENT` to a specific child without side effects on the core or other children requires three coordinated Windows behaviors:
+
+1. **New process group at spawn**: Each child is started with `CREATE_NEW_PROCESS_GROUP`, so its process-group ID equals its own PID. Signals targeted at that group do not reach the core or unrelated siblings.
+2. **Targeted `GenerateConsoleCtrlEvent`**: Called with `dwProcessGroupId = child PID` (not `0`), confining the event to the child and its descendants.
+3. **Console attach handshake**: Before sending the event, the core calls `FreeConsole` then `AttachConsole(child PID)` — `GenerateConsoleCtrlEvent` requires the caller to share a console with the target. The attach is held for the full `stop_timeout_sec` window and released only after the child exits or the timeout elapses.
+
+Because a process can only be attached to **one** console at a time, concurrent `sendCtrlBreak` calls are serialized with a package-level mutex (`consoleAttachMu`). When many monitored children are stopped simultaneously, their `CTRL_BREAK_EVENT` deliveries run sequentially before escalating to `TerminateProcess`.
 
 ## Directory Structure
 
@@ -310,11 +271,4 @@ Because a Windows process can only be attached to **one** console at a time (the
 └── package.json            # Build scripts (pnpm)
 ```
 
-## Development
-
-### Prerequisites
-
-- Go 1.26+
-- Node.js 22+ (LTS recommended)
-- pnpm (`npm install -g pnpm` or see https://pnpm.io/installation)
-- Wails CLI (`go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0`; match the version pinned in `ui/go.mod` and `.github/workflows/release.yml`)
+For build prerequisites and instructions, see [Building from source](../README.md#building-from-source) in the README.
