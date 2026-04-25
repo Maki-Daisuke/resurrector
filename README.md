@@ -12,12 +12,15 @@ It is designed to ensure that critical applications remain running within the **
 
 Crashy background apps, dev servers that die silently, utilities that need to stay alive — Resurrector keeps them all up without getting in your way.
 
-- **Reliable lifecycle management** — Monitored processes (and their subprocesses) are bound to a Windows **Job Object**, so they terminate cleanly when stopped. No zombies left behind.
-- **Live config reload** — Changes to `config.toml` are applied instantly. No need to restart Resurrector, whether you edit via the built-in UI or an external editor.
-- **Minimal memory footprint** — The resident background process is written in pure Go and consumes only a few megabytes.
-- **Zero-polling monitoring** — Event-driven via the Windows API (`WaitForSingleObject`). Idle CPU usage is effectively zero.
+On Linux, `systemd` provides robust process supervision out of the box. On Windows, the equivalent — the **Service Control Manager** — only covers Windows services, which run in an isolated session and cannot interact with the desktop. For everyday apps that need to live in your **Interactive Session** (your logged-in desktop) — dev servers, tray utilities, GUI tools — there are surprisingly few supervision options, and the ones that exist (e.g. ["Restart on Crash"](https://w-shadow.com/blog/2009/03/04/restart-on-crash/)) only watch by **executable name**. That breaks down the moment two apps share an executable: two `node.exe` processes for two different projects look identical to a name-based watcher.
 
-For the architecture, IPC, and reconciliation loop, see [Design & Architecture](./doc/design.md). For the reasoning behind key design decisions — why the core and UI are separate processes, why stdio instead of named pipes...etc — see [Design Rationales](./doc/rationales.md).
+Resurrector fills that gap with **true process-level supervision for the Interactive Session**:
+
+- **Per-process identity, not per-executable** — Each monitored app runs as a child process bound to a Windows **Job Object**, so two `node.exe` instances are tracked as separate entities. The Job Object also guarantees clean termination of the entire process tree — no zombies.
+- **Live config reload** — Changes to `config.toml` are applied instantly, whether edited via the built-in UI or an external editor.
+- **Minimal footprint** — The resident background process is pure Go, consumes a few megabytes of RAM, and is event-driven via `WaitForSingleObject` (zero idle CPU).
+
+For deeper background, see [Design Rationales](./doc/rationales.md); for architecture and technical details, see [Design & Architecture](./doc/design.md).
 
 ## Installation
 
