@@ -1,6 +1,7 @@
 # Resurrector
 
-> **Never let your critical Windows applications stay dead.**
+> **Resurrect what Windows won't.**
+> _Per-process supervision for the apps Windows services can't reach._
 
 Resurrector is a lightweight tool for Windows that **launches, monitors, and auto-restarts** the applications you tell it to keep alive.
 
