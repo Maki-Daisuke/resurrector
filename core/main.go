@@ -21,13 +21,12 @@ import (
 //go:embed icon.ico
 var iconData []byte
 
-var defaultConfigFile = []byte(`["Test Ping App"]
+var defaultConfigFile = []byte(`["Welcome to Resurrector"]
 command = "cmd.exe"
-args = ["/c", "echo", "Starting ping...", "&&", "ping", "127.0.0.1", "-n", "10"]
-restart_delay_sec = 2
-healthy_timeout_sec = 5
-hide_window = false
-max_retries = -1
+args = ["/c", "echo Welcome to Resurrector! & echo This application monitors and restarts processes. & echo Right-click the system tray icon to configure settings! & timeout /t 20"]
+restart_delay_sec = 1
+healthy_timeout_sec = 30
+max_retries = 5
 `)
 
 var (
