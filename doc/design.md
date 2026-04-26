@@ -238,6 +238,24 @@ Delivering `CTRL_BREAK_EVENT` to a specific child without side effects on the co
 
 Because a process can only be attached to **one** console at a time, concurrent `sendCtrlBreak` calls are serialized with a package-level mutex (`consoleAttachMu`). When many monitored children are stopped simultaneously, their `CTRL_BREAK_EVENT` deliveries run sequentially before escalating to `TerminateProcess`.
 
+## Supported OS
+
+| Item             | Requirement                                                                                                                                                                                                                       |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OS               | **Windows 10 version 1809 (October 2018 Update) or later**, or **Windows 11**. Windows Server 2019 / 2022 / 2025 also work.                                                                                                       |
+| Architecture     | **x64 (amd64)** only. 32-bit (x86) and ARM64 builds are not provided.                                                                                                                                                             |
+| WebView2 Runtime | Required for the management UI. Pre-installed on Windows 11; auto-distributed to most Windows 10 devices via Windows Update. Otherwise install the [Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/). |
+
+### Why Windows 10 1809+?
+
+The minimum version is determined by the most recent API requirement across the stack:
+
+- **Nested Job Objects.** Resurrector binds each child to a Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. Job Objects themselves exist since Windows 2000, but **nested Job Objects** — needed when the monitored process already runs inside a Job Object (browsers, IDEs, Task Scheduler tasks) — require **Windows 8 or later**.
+- **ConPTY-aware graceful shutdown.** The graceful-stop path skips sending `WM_CLOSE` to windows with the `PseudoConsoleWindow` class, which was introduced by [ConPTY](https://devblogs.microsoft.com/commandline/windows-command-line-introducing-the-windows-pseudo-console-conpty/) in **Windows 10 version 1809**. Without this guard, closing a ConPTY pseudo-console window would terminate the console host rather than the intended app.
+- **WebView2 / Wails v2.** The management UI renders via Microsoft Edge WebView2. Microsoft [ended WebView2 support for Windows 7 SP1 and Windows 8.1 on October 10, 2023](https://learn.microsoft.com/lifecycle/announcements/webview2-end-of-support-windows-7-8-81), making Windows 10/11 the only supported baseline.
+
+Windows 7, 8, 8.1, and Windows 10 builds older than 1809 are **not supported** and may fail to start or exhibit degraded behavior.
+
 ## Directory Structure
 
 ```text

@@ -162,6 +162,8 @@ If `stop_command` is not specified, Resurrector chooses the best-effort graceful
 
 ### Prerequisites
 
+> **Supported OS:** Windows 10 version 1809 (October 2018 Update) or later, and Windows 11. See [Supported OS](./doc/design.md#supported-os) in the design doc for details.
+
 - Go 1.26+
 - Node.js 22+ (LTS recommended)
 - pnpm (`npm install -g pnpm`, or see https://pnpm.io/installation)
