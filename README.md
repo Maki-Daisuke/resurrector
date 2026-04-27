@@ -31,7 +31,13 @@ For deeper background, see [Design Rationales](./doc/rationales.md); for archite
 2. Extract it anywhere you like (e.g. `%LOCALAPPDATA%\Programs\Resurrector\`).
 3. Run `resurrector.exe`.
 
-### Option B: Build from source
+### Option B: Install via WinGet
+
+```powershell
+winget install --id Yanother.Resurrector
+```
+
+### Option C: Build from source
 
 See [Building from source](#building-from-source) below.
 
