@@ -3,12 +3,16 @@ package main
 import (
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/energye/systray"
 )
 
 // RunSystray starts the system tray loop and registers callbacks.
 func RunSystray(iconData []byte, autoStart *AutoStartManager, onOpenUI func(), onOpenConfigWith func(), onExit func()) {
+	var once sync.Once
+	doExit := func() { once.Do(onExit) }
+
 	systray.Run(func() {
 		if len(iconData) > 0 {
 			systray.SetIcon(iconData)
@@ -71,10 +75,10 @@ func RunSystray(iconData []byte, autoStart *AutoStartManager, onOpenUI func(), o
 			})
 		}
 		mQuit.Click(func() {
-			onExit()
+			doExit()
 			systray.Quit()
 		})
 	}, func() {
-		// onExit
+		doExit()
 	})
 }
