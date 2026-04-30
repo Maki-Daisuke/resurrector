@@ -285,7 +285,6 @@ Windows 7, 8, 8.1, and Windows 10 builds older than 1809 are **not supported** a
 │   └── logger.go           # Shared slog setup (output destination and format)
 ├── doc/                    # Design docs and rationales
 ├── misc/                   # Standalone test programs for verifying stop behavior (e.g. wait_for_os_interrupt, alert_on_wm_close)
-├── config.example.toml     # Sample configuration file
 └── package.json            # Build scripts (pnpm)
 ```
 

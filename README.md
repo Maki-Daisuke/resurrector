@@ -53,6 +53,7 @@ See [Building from source](#building-from-source) below.
 
 ![Tray menu](https://github.com/user-attachments/assets/7bdcc088-7cee-40ac-b958-f22813615e30)
 
+- **Resurrector v\<version\>**: A read-only header that shows the version of the currently running build. Useful when checking whether an update has been picked up.
 - **Open Settings**: Launches the management UI. If the UI is already open, Resurrector does not launch a second copy.
 - **Open config with...**: Opens `config.toml` in an editor of your choice (via the Windows "Open with" dialog). Useful when you want to edit the file directly instead of using the UI.
 - **Auto-start Resurrector**: Toggles Windows sign-in auto-start for the current user by updating `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
@@ -60,7 +61,7 @@ See [Building from source](#building-from-source) below.
 
 ### Startup Behavior
 
-- Only one instance of Resurrector may run per Windows session. Launching a second copy shows an error dialog and exits.
+- Only one instance of Resurrector may run **per Windows session** (not per machine). The single-instance guard uses a session-local named mutex, so different signed-in users can each run their own Resurrector independently. Launching a second copy within the same session shows an error dialog and exits.
 - On first launch, if the config file does not exist, Resurrector creates it with sample content automatically.
 - If the config file is invalid at startup, Resurrector shows an error dialog and exits.
 - If the config file becomes invalid while Resurrector is already running, the current monitored state is kept and the change is ignored until the file is fixed.
@@ -134,15 +135,18 @@ The `command`, `args`, `cwd`, `stop_command`, and `stop_args` fields all support
 - `${PID}` — Replaced with the monitored process PID. **Only valid inside `stop_args`**; any other field containing `${PID}` is rejected as an invalid config.
 - `$$` — Produces a literal `$` character. Use this if you need a `$` that is not part of a placeholder.
 
-Example:
+Example (TOML literal strings, single-quoted, are recommended on Windows so backslashes don't need escaping):
 
 ```toml
 ["My App"]
-command = "${USERPROFILE}\\bin\\myapp.exe"
-args = ["--config", "${APPDATA}\\myapp\\config.json"]
-stop_command = "taskkill"
-stop_args = ["/PID", "${PID}", "/T"]
+command = '${USERPROFILE}\bin\myapp.exe'
+args = ['--config', '${APPDATA}\myapp\config.json']
+stop_command = 'taskkill'
+stop_args = ['/PID', '${PID}', '/T']
 ```
+
+> [!TIP]
+> If you prefer double-quoted strings, remember TOML treats them as basic strings where backslashes are escape characters — so Windows paths must be doubled, e.g. `"${USERPROFILE}\\bin\\myapp.exe"`.
 
 Expansion is single-pass (expanded values are not re-scanned for placeholders), so the content of environment variables is always treated literally.
 
