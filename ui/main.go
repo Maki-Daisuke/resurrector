@@ -82,12 +82,18 @@ func main() {
 		defer closeLogWriter()
 	}
 
+	slog.Info("starting Resurrector",
+		slog.String("component", "main"),
+		slog.String("binary", "ui"),
+		slog.String("version", Version),
+	)
+
 	// Create an instance of the app structure
 	app := NewApp(runtimeFlags.ConfigPath)
 
 	// Create application with options
 	err = wails.Run(&options.App{
-		Title:  "Resurrector",
+		Title:  fmt.Sprintf("Resurrector v%s", Version),
 		Width:  950,
 		Height: 800,
 		AssetServer: &assetserver.Options{

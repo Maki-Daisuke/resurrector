@@ -104,6 +104,12 @@ func main() {
 		defer closeLogWriter()
 	}
 
+	slog.Info("starting Resurrector",
+		slog.String("component", "main"),
+		slog.String("binary", "core"),
+		slog.String("version", Version),
+	)
+
 	// Allow only one core (tray) process. We open a session-local named mutex; the
 	// first run creates it, a second run gets ERROR_ALREADY_EXISTS and exits here
 	// so we never load config or start the tray twice.

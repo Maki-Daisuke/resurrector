@@ -20,6 +20,10 @@ func RunSystray(iconData []byte, autoStart *AutoStartManager, onOpenUI func(), o
 		systray.SetTitle("Resurrector")
 		systray.SetTooltip("Resurrector Process Monitor")
 
+		mVersion := systray.AddMenuItem(fmt.Sprintf("Resurrector v%s", Version), "")
+		mVersion.Disable()
+		systray.AddSeparator()
+
 		mOpen := systray.AddMenuItem("Open Settings", "Open UI")
 		mOpenConfigWith := systray.AddMenuItem("Open config with...", "Choose an app to open config.toml")
 		var mAutoStart *systray.MenuItem
