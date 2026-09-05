@@ -50,6 +50,16 @@ At the same time, TOML provides the expressiveness that plain INI lacks. Resurre
 
 Just as importantly, TOML avoids the ambiguity that comes with looser configuration formats. Resurrector treats `config.toml` as a declarative source of truth, so the format should be easy for humans to read while remaining straightforward for Go code to parse into a strictly typed schema. In that sense, TOML was chosen as a practical successor to the traditional Windows INI style: familiar in shape, but with enough structure and clarity for a modern config file.
 
+## Why the Config File Lives Under `~/.config`
+
+Resurrector deliberately does not store its primary configuration under `%APPDATA%`. That directory is conventionally treated as application-managed data: settings, caches, session state, update files, and other implementation details from many different applications can be mixed together there. It is therefore a poor place for a file that users are expected to find, edit, back up, and carry to another PC.
+
+`config.toml` is different from application-internal state. It is a user-managed, declarative description of the applications that Resurrector should supervise. Users can edit it with a text editor, keep it under version control, or copy it when migrating their Resurrector setup. The location should communicate that this is the user's configuration rather than disposable application data.
+
+The default location follows the XDG Base Directory convention: `%USERPROFILE%\\.config\\resurrector\\config.toml`. XDG is specified for Unix-like systems, so this is not presented as a native Windows convention. However, the `~/.config` layout is also used by a number of developer-oriented tools on Windows, including tools in the Git, Scoop, Firebase, and AI-agent ecosystems. Resurrector targets a similar developer audience, so adopting this cross-platform convention provides a recognizable home for user-managed configuration without placing it among opaque application data under `%APPDATA%`.
+
+This choice has a trade-off: Windows users who expect all application files to live under `AppData` may not discover the file immediately. Resurrector documents the path, offers the `-f` option for an explicit alternative, and treats the config file as a migration and backup responsibility of the user rather than silently treating it as disposable application state.
+
 ## Why `command` and `stop_command` Are Split Into an Executable and an Args Array
 
 Both the main launch command and the optional shutdown command in `config.toml` are expressed as a **single executable string plus an array of arguments**:
